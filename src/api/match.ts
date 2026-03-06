@@ -1,0 +1,23 @@
+import { apiClient } from "./client";
+
+export type MatchResultData = {
+  profile: {
+    id: number;
+    nickname: string;
+    profileImageUrl?: string;
+    bio?: string;
+  };
+  wantAgain: boolean;
+};
+
+/**
+ * 통화 종료 후 상대방 프로필 조회
+ * GET /match/result/{sessionId}
+ */
+export async function getMatchResult(sessionId: number): Promise<MatchResultData> {
+  const response = await apiClient.get<{
+    success: boolean;
+    data: MatchResultData;
+  }>(`/match/result/${sessionId}`);
+  return response.data.data;
+}

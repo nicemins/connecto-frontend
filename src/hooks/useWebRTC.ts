@@ -1,0 +1,368 @@
+import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  RTCPeerConnection,
+  RTCSessionDescription,
+  RTCIceCandidate,
+  mediaDevices,
+  MediaStream,
+} from "react-native-webrtc";
+import { getSocket } from "../api/socket";
+import type { Socket } from "socket.io-client";
+
+// WebRTC 시그널링 타입 정의
+type RTCSessionDescriptionInit = {
+  type: "offer" | "answer";
+  sdp: string;
+};
+
+type RTCIceCandidateInit = {
+  candidate: string;
+  sdpMLineIndex?: number | null;
+  sdpMid?: string | null;
+};
+
+export type WebRTCState = {
+  isConnected: boolean;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  error: string | null;
+};
+
+type WebRTCHookParams = {
+  sessionId: number;
+  webrtcChannelId: string;
+  isOfferer: boolean;
+  remoteUserId?: string; // 상대방 사용자 ID (서버에서 제공될 수 있음)
+  onCallEnd?: () => void;
+};
+
+export function useWebRTC({
+  sessionId,
+  webrtcChannelId,
+  isOfferer,
+  remoteUserId,
+  onCallEnd,
+}: WebRTCHookParams) {
+  const [state, setState] = useState<WebRTCState>({
+    isConnected: false,
+    localStream: null,
+    remoteStream: null,
+    error: null,
+  });
+
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const isOffererRef = useRef<boolean>(false);
+  const isInitializedRef = useRef<boolean>(false);
+
+  // STUN/TURN 서버 설정
+  const turnUrl = process.env.EXPO_PUBLIC_TURN_URL;
+  const iceServers = {
+    iceServers: [
+      { urls: ["stun:stun.l.google.com:19302"] },
+      ...(turnUrl
+        ? [
+            {
+              urls: turnUrl,
+              username: process.env.EXPO_PUBLIC_TURN_USERNAME ?? "",
+              credential: process.env.EXPO_PUBLIC_TURN_CREDENTIAL ?? "",
+            },
+          ]
+        : []),
+    ],
+  };
+
+  // 마이크 권한 확인 및 로컬 스트림 생성
+  // react-native-webrtc의 getUserMedia는 자동으로 권한을 요청합니다
+  const initializeLocalStream = useCallback(async () => {
+    try {
+      // 로컬 오디오 스트림 생성 (권한 요청 포함)
+      const stream = await mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+
+      localStreamRef.current = stream;
+      setState((prev) => ({ ...prev, localStream: stream }));
+
+      // PeerConnection에 로컬 트랙 추가
+      if (peerConnectionRef.current) {
+        stream.getTracks().forEach((track) => {
+          if (peerConnectionRef.current) {
+            peerConnectionRef.current.addTrack(track, stream);
+          }
+        });
+      }
+
+      return stream;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "마이크 접근 실패";
+      console.error("initializeLocalStream error:", error);
+      setState((prev) => ({ ...prev, error: errorMessage }));
+      throw error;
+    }
+  }, []);
+
+  // PeerConnection 초기화
+  const initializePeerConnection = useCallback(() => {
+    if (peerConnectionRef.current) {
+      return;
+    }
+
+    try {
+      const pc = new RTCPeerConnection(iceServers);
+      peerConnectionRef.current = pc;
+
+      // 원격 스트림 수신 처리
+      (pc as any).ontrack = (event: any) => {
+        console.log("Received remote track:", event);
+        if (event.streams && event.streams[0]) {
+          setState((prev) => ({ ...prev, remoteStream: event.streams[0] }));
+        }
+      };
+
+      // ICE 연결 상태 변경
+      (pc as any).oniceconnectionstatechange = () => {
+        const connectionState = pc.iceConnectionState;
+        console.log("ICE connection state:", connectionState);
+
+        if (connectionState === "connected" || connectionState === "completed") {
+          setState((prev) => ({ ...prev, isConnected: true }));
+        } else if (
+          connectionState === "disconnected" ||
+          connectionState === "failed" ||
+          connectionState === "closed"
+        ) {
+          setState((prev) => ({ ...prev, isConnected: false }));
+        }
+      };
+
+      // ICE Candidate 생성 시 전송
+      (pc as any).onicecandidate = (event: any) => {
+        if (event.candidate && socketRef.current) {
+          console.log("Sending ICE candidate:", event.candidate);
+          socketRef.current.emit("webrtc:ice", {
+            candidate: event.candidate.toJSON(),
+            to: remoteUserId || webrtcChannelId,
+            sessionId,
+          });
+        }
+      };
+
+      // ICE 수집 상태 변경
+      (pc as any).onicegatheringstatechange = () => {
+        console.log("ICE gathering state:", pc.iceGatheringState);
+      };
+
+      // 시그널링 상태 변경
+      (pc as any).onsignalingstatechange = () => {
+        console.log("Signaling state:", pc.signalingState);
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "PeerConnection 초기화 실패";
+      console.error("initializePeerConnection error:", error);
+      setState((prev) => ({ ...prev, error: errorMessage }));
+    }
+  }, [sessionId, webrtcChannelId, remoteUserId]);
+
+  // Offer 생성 및 전송
+  const createOffer = useCallback(async () => {
+    if (!peerConnectionRef.current) {
+      throw new Error("PeerConnection이 초기화되지 않았습니다.");
+    }
+
+    try {
+      const offer = await peerConnectionRef.current.createOffer();
+
+      await peerConnectionRef.current.setLocalDescription(offer);
+
+      if (socketRef.current) {
+        console.log("Sending offer:", offer);
+        socketRef.current.emit("webrtc:offer", {
+          sdp: offer.toJSON(),
+          to: remoteUserId || webrtcChannelId,
+          sessionId,
+        });
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Offer 생성 실패";
+      console.error("createOffer error:", error);
+      setState((prev) => ({ ...prev, error: errorMessage }));
+      throw error;
+    }
+  }, [sessionId, webrtcChannelId, remoteUserId]);
+
+  // Answer 생성 및 전송
+  const createAnswer = useCallback(
+    async (offer: RTCSessionDescriptionInit) => {
+      if (!peerConnectionRef.current) {
+        throw new Error("PeerConnection이 초기화되지 않았습니다.");
+      }
+
+      try {
+        await peerConnectionRef.current.setRemoteDescription(
+          new RTCSessionDescription(offer)
+        );
+
+        const answer = await peerConnectionRef.current.createAnswer();
+
+        await peerConnectionRef.current.setLocalDescription(answer);
+
+        if (socketRef.current) {
+          console.log("Sending answer:", answer);
+          socketRef.current.emit("webrtc:answer", {
+            sdp: answer.toJSON(),
+            to: remoteUserId || webrtcChannelId,
+            sessionId,
+          });
+        }
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Answer 생성 실패";
+        console.error("createAnswer error:", error);
+        setState((prev) => ({ ...prev, error: errorMessage }));
+        throw error;
+      }
+    },
+    [sessionId, webrtcChannelId, remoteUserId]
+  );
+
+  // WebRTC 초기화 및 연결 시작
+  const startConnection = useCallback(async () => {
+    if (isInitializedRef.current) {
+      return;
+    }
+
+    try {
+      isInitializedRef.current = true;
+
+      // Socket 연결
+      const socket = getSocket();
+      if (!socket) {
+        throw new Error("Socket 연결을 가져올 수 없습니다.");
+      }
+      socketRef.current = socket;
+
+      // 통화 채널 룸 진입 (시그널링 라우팅을 위해 join 먼저)
+      socket.emit("webrtc:join", { channelId: webrtcChannelId, sessionId });
+
+      // PeerConnection 초기화
+      initializePeerConnection();
+
+      // 로컬 스트림 초기화
+      await initializeLocalStream();
+
+      // Socket 이벤트 리스너 등록
+      socket.on("webrtc:offer", async (data: { sdp: RTCSessionDescriptionInit; from?: string }) => {
+        console.log("Received offer:", data);
+        try {
+          await createAnswer(data.sdp);
+        } catch (error) {
+          console.error("Error handling offer:", error);
+          setState((prev) => ({
+            ...prev,
+            error: error instanceof Error ? error.message : "Offer 처리 실패",
+          }));
+        }
+      });
+
+      socket.on("webrtc:answer", async (data: { sdp: RTCSessionDescriptionInit; from?: string }) => {
+        console.log("Received answer:", data);
+        if (peerConnectionRef.current) {
+          try {
+            await peerConnectionRef.current.setRemoteDescription(
+              new RTCSessionDescription(data.sdp)
+            );
+          } catch (error) {
+            console.error("Error setting remote description:", error);
+            setState((prev) => ({
+              ...prev,
+              error: error instanceof Error ? error.message : "Answer 처리 실패",
+            }));
+          }
+        }
+      });
+
+      socket.on("webrtc:ice", async (data: { candidate: RTCIceCandidateInit; from?: string }) => {
+        console.log("Received ICE candidate:", data);
+        if (peerConnectionRef.current && data.candidate && data.candidate.candidate) {
+          try {
+            const candidate = new (RTCIceCandidate as any)(data.candidate);
+            await peerConnectionRef.current.addIceCandidate(candidate);
+          } catch (error) {
+            console.error("Error adding ICE candidate:", error);
+            // ICE candidate 에러는 치명적이지 않으므로 상태 업데이트하지 않음
+          }
+        }
+      });
+
+      // 서버가 지정한 isOfferer만 Offer 생성
+      if (isOfferer) {
+        isOffererRef.current = true;
+        await createOffer();
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "WebRTC 초기화 실패";
+      console.error("startConnection error:", error);
+      setState((prev) => ({ ...prev, error: errorMessage }));
+      isInitializedRef.current = false;
+    }
+  }, [initializePeerConnection, initializeLocalStream, createOffer]);
+
+  // Cleanup: 모든 리소스 정리
+  const cleanup = useCallback(() => {
+    console.log("Cleaning up WebRTC resources...");
+
+    // 로컬 스트림 정리
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        track.stop();
+      });
+      localStreamRef.current = null;
+    }
+
+    // PeerConnection 정리
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    // Socket 리스너 해제
+    if (socketRef.current) {
+      socketRef.current.off("webrtc:offer");
+      socketRef.current.off("webrtc:answer");
+      socketRef.current.off("webrtc:ice");
+    }
+
+    // 상태 초기화
+    setState({
+      isConnected: false,
+      localStream: null,
+      remoteStream: null,
+      error: null,
+    });
+
+    isInitializedRef.current = false;
+    isOffererRef.current = false;
+  }, []);
+
+  // 컴포넌트 마운트 시 연결 시작
+  useEffect(() => {
+    startConnection();
+
+    return () => {
+      cleanup();
+    };
+  }, [startConnection, cleanup]);
+
+  return {
+    ...state,
+    startConnection,
+    cleanup,
+  };
+}
