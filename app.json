@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "connecto-app",
+    "name": "Connecto",
     "slug": "connecto-app",
     "scheme": "connecto",
     "version": "1.0.0",
@@ -22,8 +22,21 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.connectoapp"
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff"
+        }
+      ],
+      "expo-web-browser",
+      "@react-native-google-signin/google-signin",
+      "expo-secure-store"
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }
