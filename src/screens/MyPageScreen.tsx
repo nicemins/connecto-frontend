@@ -1,0 +1,338 @@
+import * as React from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  Image,
+  TextInput,
+  ActivityIndicator,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import type { CompositeNavigationProp } from "@react-navigation/native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { MainTabParamList, RootStackParamList } from "../navigation/types";
+import * as ImagePicker from "expo-image-picker";
+import { useAuthStore } from "../store/authStore";
+import { updateProfile, updateProfileImage } from "../api/profile";
+import { getMe, logout as logoutApi, deleteAccount } from "../api/auth";
+
+type MyPageNavigationProp = CompositeNavigationProp<
+  BottomTabNavigationProp<MainTabParamList, "MyPage">,
+  NativeStackNavigationProp<RootStackParamList>
+>;
+
+export default function MyPageScreen() {
+  const navigation = useNavigation<MyPageNavigationProp>();
+  const { me, setMe, logout } = useAuthStore();
+
+  const [nickname, setNickname] = React.useState(me?.profile?.nickname ?? "");
+  const [bio, setBio] = React.useState(me?.profile?.bio ?? "");
+  const [editing, setEditing] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [uploadingImage, setUploadingImage] = React.useState(false);
+
+  React.useEffect(() => {
+    getMe()
+      .then((updated) => {
+        setMe(updated);
+        setNickname(updated.profile?.nickname ?? "");
+        setBio(updated.profile?.bio ?? "");
+      })
+      .catch(() => {});
+  }, [setMe]);
+
+  const handleLogout = () => {
+    Alert.alert("로그아웃", "로그아웃 하시겠어요?", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "로그아웃",
+        style: "destructive",
+        onPress: async () => {
+          try { await logoutApi(); } catch {}
+          await logout();
+          navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+        },
+      },
+    ]);
+  };
+
+  const handleWithdraw = () => {
+    Alert.alert("회원 탈퇴", "탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠어요?", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "탈퇴",
+        style: "destructive",
+        onPress: async () => {
+          try { await deleteAccount(); } catch {}
+          await logout();
+          navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+        },
+      },
+    ]);
+  };
+
+  const handlePickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("권한 필요", "갤러리 접근 권한이 필요합니다.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaType.images,
+      allowsEditing: false,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    setUploadingImage(true);
+    try {
+      await updateProfileImage(result.assets[0].uri);
+      const updated = await getMe();
+      setMe(updated);
+    } catch {
+      Alert.alert("오류", "이미지 업로드에 실패했습니다. 다시 시도해 주세요.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!nickname.trim()) {
+      Alert.alert("입력 오류", "닉네임을 입력해주세요.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateProfile({ nickname: nickname.trim(), bio: bio.trim() || undefined });
+      const updated = await getMe();
+      setMe(updated);
+      setEditing(false);
+      Alert.alert("저장 완료", "프로필이 업데이트되었습니다.");
+    } catch {
+      Alert.alert("오류", "프로필 저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const profileImageUrl = me?.profile?.profileImageUrl ?? null;
+  const nativeLangs = me?.languages?.filter((l) => l.type === "NATIVE") ?? [];
+  const learningLangs = me?.languages?.filter((l) => l.type === "LEARNING") ?? [];
+
+  return (
+    <View style={styles.root}>
+      <LinearGradient
+        colors={["#10101E", "#16213E"]}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* 프로필 이미지 */}
+          <View className="items-center mt-8 mb-6">
+            <Pressable onPress={handlePickImage} disabled={uploadingImage} style={styles.profileContainer}>
+              {profileImageUrl ? (
+                <Image
+                  source={{ uri: profileImageUrl }}
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <LinearGradient
+                  colors={["#FFB88C", "#F093A0", "#B88FCE"]}
+                  style={styles.profileImage}
+                />
+              )}
+              {/* 카메라 아이콘 오버레이 */}
+              <View style={styles.cameraOverlay}>
+                {uploadingImage ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.cameraIcon}>📷</Text>
+                )}
+              </View>
+            </Pressable>
+            <Text className="text-white text-xl font-bold mt-3">
+              {me?.profile?.nickname ?? me?.user?.email ?? ""}
+            </Text>
+            {me?.user?.email && (
+              <Text className="text-white/50 text-sm mt-1">{me.user.email}</Text>
+            )}
+          </View>
+
+          {/* 프로필 편집 카드 */}
+          <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-white text-lg font-bold">프로필</Text>
+              {!editing ? (
+                <Pressable onPress={() => setEditing(true)}>
+                  <Text className="text-purple-400 text-sm font-semibold">편집</Text>
+                </Pressable>
+              ) : (
+                <View className="flex-row gap-3">
+                  <Pressable
+                    onPress={() => {
+                      setEditing(false);
+                      setNickname(me?.profile?.nickname ?? "");
+                      setBio(me?.profile?.bio ?? "");
+                    }}
+                  >
+                    <Text className="text-gray-400 text-sm">취소</Text>
+                  </Pressable>
+                  <Pressable onPress={handleSave} disabled={saving}>
+                    {saving ? (
+                      <ActivityIndicator size="small" color="#a78bfa" />
+                    ) : (
+                      <Text className="text-purple-400 text-sm font-semibold">저장</Text>
+                    )}
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            <View className="mb-3">
+              <Text className="text-white/60 text-xs mb-1">닉네임</Text>
+              {editing ? (
+                <TextInput
+                  style={styles.input}
+                  value={nickname}
+                  onChangeText={setNickname}
+                  placeholder="닉네임"
+                  placeholderTextColor="#6b7280"
+                />
+              ) : (
+                <Text className="text-white text-base">
+                  {me?.profile?.nickname ?? "-"}
+                </Text>
+              )}
+            </View>
+
+            <View>
+              <Text className="text-white/60 text-xs mb-1">소개</Text>
+              {editing ? (
+                <TextInput
+                  style={[styles.input, { height: 80, textAlignVertical: "top" }]}
+                  value={bio}
+                  onChangeText={setBio}
+                  placeholder="자기소개를 입력해주세요"
+                  placeholderTextColor="#6b7280"
+                  multiline
+                />
+              ) : (
+                <Text className="text-white/80 text-sm">
+                  {me?.profile?.bio ?? "소개가 없습니다."}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {/* 계정 관리 카드 */}
+          <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
+            <Text className="text-white text-lg font-bold mb-3">계정</Text>
+            <Pressable
+              onPress={handleLogout}
+              className="h-12 items-center justify-center rounded-2xl bg-white/10 border border-white/20 mb-2"
+            >
+              <Text className="text-white text-sm font-semibold">로그아웃</Text>
+            </Pressable>
+            <Pressable onPress={handleWithdraw} className="h-10 items-center justify-center">
+              <Text className="text-red-400/70 text-xs">회원 탈퇴</Text>
+            </Pressable>
+          </View>
+
+          {/* 언어 카드 */}
+          <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
+            <Text className="text-white text-lg font-bold mb-3">언어</Text>
+
+            {nativeLangs.length > 0 && (
+              <View className="mb-2">
+                <Text className="text-white/60 text-xs mb-1">모국어</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {nativeLangs.map((l) => (
+                    <View
+                      key={l.id}
+                      className="px-3 py-1 rounded-full bg-purple-500/30 border border-purple-400/50"
+                    >
+                      <Text className="text-purple-200 text-sm">
+                        {l.languageCode.toUpperCase()}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {learningLangs.length > 0 && (
+              <View>
+                <Text className="text-white/60 text-xs mb-1">학습 중</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {learningLangs.map((l) => (
+                    <View
+                      key={l.id}
+                      className="px-3 py-1 rounded-full bg-blue-500/30 border border-blue-400/50"
+                    >
+                      <Text className="text-blue-200 text-sm">
+                        {l.languageCode.toUpperCase()} · {l.level}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {nativeLangs.length === 0 && learningLangs.length === 0 && (
+              <Text className="text-white/40 text-sm">설정된 언어가 없습니다.</Text>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  profileContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.3)",
+    overflow: "hidden",
+  },
+  cameraOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 36,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cameraIcon: {
+    fontSize: 16,
+  },
+  profileImage: {
+    width: "100%",
+    height: "100%",
+  },
+  input: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: "#fff",
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+});
