@@ -3,133 +3,74 @@ import {
   View,
   Text,
   Pressable,
+  TextInput,
   ScrollView,
   useWindowDimensions,
   StyleSheet,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
-import { login } from "../api/auth";
+import { login, getMe } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
-
-WebBrowser.maybeCompleteAuthSession();
-
-function getErrorMessage(e: unknown): string {
-  if (e && typeof e === "object" && "message" in e)
-    return String((e as { message: unknown }).message);
-  if (e && typeof e === "object" && "response" in e) {
-    const r = (e as { response?: { data?: { message?: string } } }).response;
-    if (r?.data?.message) return r.data.message;
-  }
-  return "로그인에 실패했습니다.";
-}
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
   "Login"
 >;
 
-const GOOGLE_WEB_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
-  "PLACEHOLDER_WEB_CLIENT_ID.apps.googleusercontent.com";
-
-const GOOGLE_IOS_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ??
-  GOOGLE_WEB_CLIENT_ID;
+function getErrorMessage(e: unknown): string {
+  if (e && typeof e === "object" && "response" in e) {
+    const r = (e as { response?: { data?: { message?: string } } }).response;
+    if (r?.data?.message) return r.data.message;
+  }
+  if (e && typeof e === "object" && "message" in e)
+    return String((e as { message: unknown }).message);
+  return "로그인에 실패했습니다.";
+}
 
 export default function LoginScreen() {
   const navigation = useNavigation<LoginScreenNavigationProp>();
-  const setAccessToken = useAuthStore((s) => s.setAccessToken);
-  const [loading, setLoading] = React.useState<string | null>(null);
+  const { persistTokens, setMe } = useAuthStore();
   const { width } = useWindowDimensions();
-  const charSize = Math.min(width * 0.5, 200);
-  const eyeTop = charSize * 0.38;
-  const mouthTop = charSize * 0.52;
+  const charSize = Math.min(width * 0.45, 180);
 
-  const [googleRequest, googleResponse, googlePromptAsync] =
-    Google.useAuthRequest({
-      webClientId: GOOGLE_WEB_CLIENT_ID,
-      iosClientId: GOOGLE_IOS_CLIENT_ID,
-      androidClientId:
-        process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? undefined,
-      scopes: ["openid", "profile", "email"],
-    });
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!googleResponse || loading !== "google") return;
-    if (googleResponse.type === "dismiss" || googleResponse.type === "error") {
-      setLoading(null);
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert("입력 오류", "이메일과 비밀번호를 모두 입력해주세요.");
       return;
     }
-    if (googleResponse.type !== "success") return;
-    const { authentication } = googleResponse;
-    const token = authentication?.idToken ?? authentication?.accessToken;
-    if (!token) {
-      setLoading(null);
-      Alert.alert("로그인 실패", "Google에서 토큰을 받지 못했습니다.");
-      return;
-    }
-    (async () => {
-      try {
-        const { accessToken } = await login("google", token);
-        setAccessToken(accessToken);
-        setLoading(null);
-        navigation.replace("Home");
-      } catch (e: unknown) {
-        setLoading(null);
-        Alert.alert("로그인 실패", getErrorMessage(e));
+
+    setLoading(true);
+    try {
+      const { accessToken, refreshToken } = await login(email.trim(), password);
+      await persistTokens(accessToken, refreshToken ?? undefined);
+
+      // 내 정보 조회
+      const me = await getMe();
+      setMe(me);
+
+      if (!me.profile) {
+        navigation.replace("ProfileSetup");
+      } else {
+        navigation.replace("MainTabs");
       }
-    })();
-  }, [googleResponse, loading, setAccessToken, navigation]);
-
-  const runLogin = async (
-    provider: "kakao" | "google" | "line",
-    token: string
-  ) => {
-    if (loading) return;
-    setLoading(provider);
-    try {
-      const { accessToken } = await login(provider, token);
-      setAccessToken(accessToken);
-      setLoading(null);
-      navigation.replace("Home");
     } catch (e: unknown) {
-      setLoading(null);
       Alert.alert("로그인 실패", getErrorMessage(e));
+    } finally {
+      setLoading(false);
     }
   };
-
-  const handleKakao = () => {
-    runLogin("kakao", "dev-kakao-token");
-  };
-
-  const handleGoogle = async () => {
-    if (loading) return;
-    if (!googleRequest) {
-      Alert.alert("준비 중", "Google 로그인 설정을 불러오는 중입니다.");
-      return;
-    }
-    setLoading("google");
-    try {
-      await googlePromptAsync();
-    } catch {
-      setLoading(null);
-      Alert.alert("로그인 실패", "Google 로그인을 시작하지 못했습니다.");
-    }
-  };
-
-  const handleLine = () => {
-    runLogin("line", "dev-line-token");
-  };
-
-  const busy = !!loading;
 
   return (
     <View style={styles.root}>
@@ -139,94 +80,123 @@ export default function LoginScreen() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          {/* 상단: 로고 + 태그라인 */}
-          <View className="items-center pt-6 pb-4">
-            <Text className="text-2xl font-bold text-gray-800">Connecto</Text>
-            <Text className="mt-1 text-base text-gray-600">
-              5분 익명 보이스 채팅
-            </Text>
-          </View>
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* 로고 */}
+            <View className="items-center pt-10 pb-2">
+              <Text className="text-3xl font-bold text-gray-800">Connecto</Text>
+              <Text className="mt-1 text-sm text-gray-500">
+                5분 익명 보이스 채팅
+              </Text>
+            </View>
 
-          {/* 중앙: 귀여운 메인 캐릭터 */}
-          <View className="flex-1 items-center justify-center py-8">
-            <View
-              style={[
-                styles.characterBlob,
-                { width: charSize, height: charSize, borderRadius: charSize / 2 },
-              ]}
-            >
-              <LinearGradient
-                colors={["#FFB88C", "#F093A0", "#B88FCE"]}
-                locations={[0, 0.5, 1]}
-                style={[styles.characterGradient, { borderRadius: charSize / 2 }]}
-              />
-              <View style={[styles.faceRow, { top: eyeTop }]}>
-                <View style={styles.eyes}>
-                  <View style={styles.eye} />
-                  <View style={styles.eye} />
+            {/* 캐릭터 */}
+            <View className="items-center justify-center py-6">
+              <View
+                style={[
+                  styles.characterBlob,
+                  {
+                    width: charSize,
+                    height: charSize,
+                    borderRadius: charSize / 2,
+                  },
+                ]}
+              >
+                <LinearGradient
+                  colors={["#FFB88C", "#F093A0", "#B88FCE"]}
+                  locations={[0, 0.5, 1]}
+                  style={[
+                    styles.characterGradient,
+                    { borderRadius: charSize / 2 },
+                  ]}
+                />
+                <View style={[styles.faceRow, { top: charSize * 0.38 }]}>
+                  <View style={styles.eyes}>
+                    <View style={styles.eye} />
+                    <View style={styles.eye} />
+                  </View>
+                </View>
+                <View style={[styles.faceRow, { top: charSize * 0.52 }]}>
+                  <View style={styles.mouth} />
                 </View>
               </View>
-              <View style={[styles.faceRow, { top: mouthTop }]}>
-                <View style={styles.mouth} />
-              </View>
             </View>
-          </View>
 
-          {/* 하단: 소셜 로그인 버튼 */}
-          <View className="gap-3 pb-6">
-            <Pressable
-              onPress={handleKakao}
-              disabled={busy}
-              className="active:opacity-80 h-14 items-center justify-center rounded-2xl bg-[#FEE500] disabled:opacity-60"
-            >
-              {loading === "kakao" ? (
-                <ActivityIndicator color="#191919" />
-              ) : (
-                <Text className="text-base font-semibold text-[#191919]">
-                  카카오로 시작하기
+            {/* 폼 */}
+            <View className="gap-3 pb-4">
+              <TextInput
+                style={styles.input}
+                placeholder="이메일"
+                placeholderTextColor="#9ca3af"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!loading}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="비밀번호"
+                placeholderTextColor="#9ca3af"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                editable={!loading}
+                onSubmitEditing={handleLogin}
+                returnKeyType="go"
+              />
+
+              <Pressable
+                onPress={handleLogin}
+                disabled={loading}
+                className="h-14 items-center justify-center rounded-2xl disabled:opacity-60"
+                style={styles.loginButton}
+              >
+                <LinearGradient
+                  colors={["#B88FCE", "#F093A0", "#FFB88C"]}
+                  locations={[0, 0.5, 1]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                  className="rounded-2xl"
+                />
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text className="text-base font-semibold text-white">
+                    로그인
+                  </Text>
+                )}
+              </Pressable>
+
+              {/* 회원가입 링크 */}
+              <Pressable
+                onPress={() => navigation.navigate("SignUp")}
+                disabled={loading}
+                className="h-12 items-center justify-center"
+              >
+                <Text className="text-sm text-gray-500">
+                  계정이 없으신가요?{" "}
+                  <Text className="font-semibold text-purple-500">
+                    회원가입
+                  </Text>
                 </Text>
-              )}
-            </Pressable>
+              </Pressable>
+            </View>
 
-            <Pressable
-              onPress={handleGoogle}
-              disabled={busy}
-              className="active:opacity-80 h-14 items-center justify-center rounded-2xl border-2 border-gray-300 bg-white disabled:opacity-60"
-            >
-              {loading === "google" ? (
-                <ActivityIndicator color="#374151" />
-              ) : (
-                <Text className="text-base font-semibold text-gray-700">
-                  구글로 시작하기
-                </Text>
-              )}
-            </Pressable>
-
-            <Pressable
-              onPress={handleLine}
-              disabled={busy}
-              className="active:opacity-80 h-14 items-center justify-center rounded-2xl bg-[#06C755] disabled:opacity-60"
-            >
-              {loading === "line" ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-base font-semibold text-white">
-                  라인으로 시작하기
-                </Text>
-              )}
-            </Pressable>
-          </View>
-
-          {/* 푸터 */}
-          <Text className="pb-8 text-center text-xs text-gray-500">
-            로그인 시 이용약관 및 개인정보 처리방침에 동의하게 됩니다
-          </Text>
-        </ScrollView>
+            <Text className="pb-8 text-center text-xs text-gray-400">
+              로그인 시 이용약관 및 개인정보 처리방침에 동의하게 됩니다
+            </Text>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
@@ -250,10 +220,7 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: "center",
   },
-  eyes: {
-    flexDirection: "row",
-    gap: 12,
-  },
+  eyes: { flexDirection: "row", gap: 12 },
   eye: {
     width: 10,
     height: 10,
@@ -268,5 +235,22 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderTopWidth: 0,
     borderColor: "#374151",
+  },
+  input: {
+    height: 52,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    color: "#1f2937",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
+  },
+  loginButton: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });
