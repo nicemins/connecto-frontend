@@ -76,10 +76,20 @@ export async function rejectFriendRequest(requestId: number): Promise<void> {
   await apiClient.patch(`/friends/request/${requestId}/reject`);
 }
 
+export type FriendCallResponse = {
+  sessionId: number;
+  webrtcChannelId: string;
+  friendId: number;
+};
+
 /**
  * 친구에게 통화 요청
  * POST /call/request/{friendId}
+ * → 201: { sessionId, webrtcChannelId, friendId }
  */
-export async function requestCallToFriend(friendId: number): Promise<void> {
-  await apiClient.post(`/call/request/${friendId}`);
+export async function requestCallToFriend(friendId: number): Promise<FriendCallResponse> {
+  const { data } = await apiClient.post<{ success: boolean; data: FriendCallResponse }>(
+    `/call/request/${friendId}`
+  );
+  return data.data;
 }
