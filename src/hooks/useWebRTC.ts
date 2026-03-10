@@ -15,6 +15,15 @@ type RTCSessionDescriptionInit = {
   sdp: string;
 };
 
+// H-8: react-native-webrtc RTCPeerConnection 이벤트 핸들러 타입
+type RTCPeerConnectionWithEvents = RTCPeerConnection & {
+  ontrack: ((event: { streams: MediaStream[] }) => void) | null;
+  oniceconnectionstatechange: (() => void) | null;
+  onicecandidate: ((event: { candidate: { toJSON(): RTCIceCandidateInit } | null }) => void) | null;
+  onicegatheringstatechange: (() => void) | null;
+  onsignalingstatechange: (() => void) | null;
+};
+
 type RTCIceCandidateInit = {
   candidate: string;
   sdpMLineIndex?: number | null;
@@ -112,11 +121,12 @@ export function useWebRTC({
     }
 
     try {
-      const pc = new RTCPeerConnection(iceServers);
+      // H-8: (pc as any) 대신 타입 단언 1회로 통일
+      const pc = new RTCPeerConnection(iceServers) as RTCPeerConnectionWithEvents;
       peerConnectionRef.current = pc;
 
       // 원격 스트림 수신 처리
-      (pc as any).ontrack = (event: any) => {
+      pc.ontrack = (event) => {
         console.log("Received remote track:", event);
         if (event.streams && event.streams[0]) {
           setState((prev) => ({ ...prev, remoteStream: event.streams[0] }));
@@ -124,7 +134,7 @@ export function useWebRTC({
       };
 
       // ICE 연결 상태 변경
-      (pc as any).oniceconnectionstatechange = () => {
+      pc.oniceconnectionstatechange = () => {
         const connectionState = pc.iceConnectionState;
         console.log("ICE connection state:", connectionState);
 
@@ -140,7 +150,7 @@ export function useWebRTC({
       };
 
       // ICE Candidate 생성 시 전송
-      (pc as any).onicecandidate = (event: any) => {
+      pc.onicecandidate = (event) => {
         if (event.candidate && socketRef.current) {
           console.log("Sending ICE candidate:", event.candidate);
           socketRef.current.emit("webrtc:ice", {
@@ -152,12 +162,12 @@ export function useWebRTC({
       };
 
       // ICE 수집 상태 변경
-      (pc as any).onicegatheringstatechange = () => {
+      pc.onicegatheringstatechange = () => {
         console.log("ICE gathering state:", pc.iceGatheringState);
       };
 
       // 시그널링 상태 변경
-      (pc as any).onsignalingstatechange = () => {
+      pc.onsignalingstatechange = () => {
         console.log("Signaling state:", pc.signalingState);
       };
     } catch (error) {
