@@ -12,10 +12,11 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { MotiView } from "moti";
+
 import { endCall } from "../api/call";
 import { getMatchResult } from "../api/match";
 import { useWebRTC } from "../hooks/useWebRTC";
+import CharacterBlob from "../components/CharacterBlob";
 
 type CallScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -45,6 +46,16 @@ export default function CallScreen() {
   const [secondsLeft, setSecondsLeft] = React.useState(TOTAL_SECONDS);
   const [isEnding, setIsEnding] = React.useState(false);
   const [startTime] = React.useState(Date.now());
+  const isEndingRef = React.useRef(false);
+  const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const isMountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   const { isConnected, error: webrtcError, startConnection, cleanup } = useWebRTC({
     sessionId,
@@ -74,48 +85,66 @@ export default function CallScreen() {
 
   const handleEndCall = React.useCallback(
     async (reason?: string) => {
-      if (isEnding) return;
+      // H-3: isEndingRef로 race condition 방지 (state 비동기 업데이트 문제 해결)
+      if (isEndingRef.current) return;
+      isEndingRef.current = true;
       setIsEnding(true);
+
+      // H-2: 타이머 즉시 정리
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
 
       try {
         await endCall(sessionId, reason);
+        // H-1: navigate는 try 블록 안에서만 실행
+        const totalTime = getTotalTimeFormatted();
+        const matchResult = await getMatchResult(sessionId).catch(() => null);
+        navigation.replace("MatchResult", {
+          sessionId,
+          partnerId: matchResult ? String(matchResult.profile.id) : undefined,
+          totalTime,
+        });
       } catch (e) {
         console.error("endCall error:", e);
-      } finally {
+        Alert.alert("오류", "통화 종료 중 오류가 발생했습니다.");
+        isEndingRef.current = false;
         setIsEnding(false);
       }
-      // 통화 종료 후 결과 조회 (상대방 프로필 공개)
-      const totalTime = getTotalTimeFormatted();
-      const matchResult = await getMatchResult(sessionId).catch(() => null);
-      navigation.replace("MatchResult", {
-        sessionId,
-        partnerId: matchResult ? String(matchResult.profile.id) : undefined,
-        totalTime,
-      });
     },
-    [sessionId, isEnding, navigation, getTotalTimeFormatted]
+    [sessionId, navigation, getTotalTimeFormatted]
   );
 
   // 타이머가 00:00이 되었을 때 자동으로 종료 처리
   React.useEffect(() => {
-    if (secondsLeft === 0 && !isEnding) {
+    if (secondsLeft === 0 && !isEndingRef.current) {
       handleEndCall("timeout");
     }
-  }, [secondsLeft, isEnding, handleEndCall]);
+  }, [secondsLeft, handleEndCall]);
 
   // 타이머 카운트다운 (마운트 시 한 번만 실행)
   React.useEffect(() => {
-    const interval = setInterval(() => {
+    // H-2: timerRef에 저장해 handleEndCall에서 즉시 정리 가능하도록
+    timerRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
   }, []);
 
   return (
@@ -165,30 +194,10 @@ export default function CallScreen() {
             <View className="flex-row items-center justify-center gap-8">
               {/* 왼쪽 캐릭터 */}
               <View className="items-center">
-                <View
-                  style={[
-                    styles.characterBlob,
-                    { width: charSize, height: charSize, borderRadius: charSize / 2 },
-                  ]}
-                >
-                  <LinearGradient
-                    colors={["#FFB88C", "#F093A0", "#B88FCE"]}
-                    locations={[0, 0.5, 1]}
-                    style={[
-                      styles.characterGradient,
-                      { borderRadius: charSize / 2 },
-                    ]}
-                  />
-                  <View style={[styles.faceRow, { top: charSize * 0.38 }]}>
-                    <View style={styles.eyes}>
-                      <View style={styles.eye} />
-                      <View style={styles.eye} />
-                    </View>
-                  </View>
-                  <View style={[styles.faceRow, { top: charSize * 0.52 }]}>
-                    <View style={styles.mouth} />
-                  </View>
-                </View>
+                <CharacterBlob
+                  size={charSize}
+                  colors={["#FFB88C", "#F093A0", "#B88FCE"]}
+                />
                 {/* 보이스 비주얼라이저 (파동) */}
                 <View className="mt-4 flex-row gap-1">
                   {[0, 1, 2, 3, 4, 5].map((i) => {
@@ -202,23 +211,13 @@ export default function CallScreen() {
                       [8, 18, 30, 22, 8],
                     ];
                     return (
-                      <MotiView
+                      <View
                         key={i}
-                        from={{ height: 8, opacity: 0.4 }}
-                        animate={{
-                          height: wavePatterns[i],
-                          opacity: [0.4, 1, 0.7, 1, 0.4],
-                        }}
-                        transition={{
-                          type: "timing",
-                          duration: 800 + i * 100,
-                          delay: i * 100, // 각 막대마다 다른 delay로 파도 효과
-                        } as any}
-                        {...({ repeat: Infinity as any } as any)}
                         style={[
                           styles.waveBar,
                           {
                             width: 4,
+                            height: wavePatterns[i][2],
                             backgroundColor: "#FFB88C",
                           },
                         ]}
@@ -230,30 +229,10 @@ export default function CallScreen() {
 
               {/* 오른쪽 캐릭터 */}
               <View className="items-center">
-                <View
-                  style={[
-                    styles.characterBlob,
-                    { width: charSize, height: charSize, borderRadius: charSize / 2 },
-                  ]}
-                >
-                  <LinearGradient
-                    colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
-                    locations={[0, 0.5, 1]}
-                    style={[
-                      styles.characterGradient,
-                      { borderRadius: charSize / 2 },
-                    ]}
-                  />
-                  <View style={[styles.faceRow, { top: charSize * 0.38 }]}>
-                    <View style={styles.eyes}>
-                      <View style={styles.eye} />
-                      <View style={styles.eye} />
-                    </View>
-                  </View>
-                  <View style={[styles.faceRow, { top: charSize * 0.52 }]}>
-                    <View style={styles.mouth} />
-                  </View>
-                </View>
+                <CharacterBlob
+                  size={charSize}
+                  colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
+                />
                 {/* 보이스 비주얼라이저 (파동) */}
                 <View className="mt-4 flex-row gap-1">
                   {[0, 1, 2, 3, 4, 5].map((i) => {
@@ -267,23 +246,13 @@ export default function CallScreen() {
                       [8, 18, 28, 20, 8],
                     ];
                     return (
-                      <MotiView
+                      <View
                         key={i}
-                        from={{ height: 8, opacity: 0.4 }}
-                        animate={{
-                          height: wavePatterns[i],
-                          opacity: [0.4, 1, 0.7, 1, 0.4],
-                        }}
-                        transition={{
-                          type: "timing",
-                          duration: 900 + i * 120,
-                          delay: i * 120, // 각 막대마다 다른 delay로 파도 효과
-                        } as any}
-                        {...({ repeat: Infinity as any } as any)}
                         style={[
                           styles.waveBar,
                           {
                             width: 4,
+                            height: wavePatterns[i][2],
                             backgroundColor: "#60A5FA",
                           },
                         ]}
@@ -326,42 +295,6 @@ export default function CallScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  characterBlob: {
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  characterGradient: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-  },
-  faceRow: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 11,
-  },
-  eyes: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  eye: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#1f2937",
-  },
-  mouth: {
-    width: 24,
-    height: 12,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    borderWidth: 2,
-    borderTopWidth: 0,
-    borderColor: "#374151",
-  },
   waveBar: {
     borderRadius: 2,
   },
