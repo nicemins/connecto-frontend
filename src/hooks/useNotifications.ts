@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
-import { updatePushToken } from "../api/notifications";
+import { Platform } from "react-native";
+import { navigationRef } from "../navigation/navigationRef";
+import { registerDeviceToken } from "../api/notifications";
 
 let Notifications: typeof import("expo-notifications") | null = null;
 let Device: typeof import("expo-device") | null = null;
 
-async function loadNotificationModules() {
+async function loadNotificationModules(): Promise<boolean> {
   if (!Notifications) {
     try {
       Notifications = await import("expo-notifications");
@@ -19,28 +21,84 @@ export function useNotifications() {
 
   useEffect(() => {
     let isMounted = true;
+    let responseSub: { remove: () => void } | null = null;
+    let tokenSub: { remove: () => void } | null = null;
+
     const init = async () => {
       await new Promise((r) => setTimeout(r, 200));
       if (!isMounted) return;
+
       const loaded = await loadNotificationModules();
       if (!loaded || !Notifications || !Device) return;
-      const token = await registerForPushNotificationsAsync();
-      if (token && isMounted) {
-        pushTokenRef.current = token;
-        updatePushToken(token).catch(() => {});
+
+      // N-4: 포그라운드 알림 핸들러 — 앱 실행 중에도 알림 표시
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
+      });
+
+      // N-5: 알림 탭 핸들러 — FriendList 화면으로 이동
+      responseSub = Notifications.addNotificationResponseReceivedListener(() => {
+        if (navigationRef.isReady()) {
+          navigationRef.navigate("MainTabs", { screen: "FriendList" } as never);
+        }
+      });
+
+      // N-2 + N-3: FCM 디바이스 토큰 획득 (채널 설정 포함)
+      const result = await registerForPushNotificationsAsync();
+      if (result && isMounted) {
+        pushTokenRef.current = result.token;
+        // N-1: 수정된 엔드포인트·body로 등록
+        registerDeviceToken(result.token, result.platform).catch(() => {});
       }
+
+      // N-6: FCM 토큰 갱신 감지 (앱 재설치 등)
+      tokenSub = Notifications.addPushTokenListener(async (newToken) => {
+        if (newToken.data && isMounted) {
+          const platform = newToken.type === "ios" ? "ios" : "android";
+          registerDeviceToken(newToken.data as string, platform).catch(() => {});
+        }
+      });
     };
+
     const t = setTimeout(init, 200);
-    return () => { isMounted = false; clearTimeout(t); };
+
+    return () => {
+      isMounted = false;
+      clearTimeout(t);
+      responseSub?.remove();
+      tokenSub?.remove();
+    };
   }, []);
 
   return { pushToken: pushTokenRef.current };
 }
 
-async function registerForPushNotificationsAsync(): Promise<string | null> {
+// N-2 + N-3: FCM raw 디바이스 토큰 획득
+async function registerForPushNotificationsAsync(): Promise<{
+  token: string;
+  platform: "android" | "ios";
+} | null> {
   if (!Notifications || !Device) return null;
   try {
     if (!Device.isDevice) return null;
+
+    // N-3: Android 8.0+ 알림 채널 (없으면 알림 미표시)
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "Connecto",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#8B5CF6",
+        showBadge: true,
+      });
+    }
+
     const { status: existing } = await Notifications.getPermissionsAsync();
     let final = existing;
     if (existing !== "granted") {
@@ -48,7 +106,13 @@ async function registerForPushNotificationsAsync(): Promise<string | null> {
       final = status;
     }
     if (final !== "granted") return null;
-    const t = await Notifications.getExpoPushTokenAsync({ projectId: process.env.EXPO_PUBLIC_PROJECT_ID });
-    return t.data;
+
+    // N-2: Expo Push Token 대신 FCM 디바이스 토큰 (raw) 사용
+    // 백엔드 Firebase Admin SDK와 직접 호환
+    const deviceToken = await Notifications.getDevicePushTokenAsync();
+    return {
+      token: deviceToken.data as string,
+      platform: deviceToken.type === "ios" ? "ios" : "android",
+    };
   } catch { return null; }
 }
