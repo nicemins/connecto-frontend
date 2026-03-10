@@ -18,7 +18,7 @@ import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { MotiView } from "moti";
+
 import {
   getFriendList,
   getFriendRequests,
@@ -116,13 +116,17 @@ export default function FriendListScreen() {
   // 통화 요청
   const handleCallRequest = React.useCallback(async (friend: Friend) => {
     try {
-      await requestCallToFriend(friend.userId);
-      Alert.alert("통화 요청", `${friend.nickname ?? "친구"}에게 통화 요청을 보냈습니다.`);
+      const result = await requestCallToFriend(friend.userId);
+      navigation.navigate("Call", {
+        sessionId: result.sessionId,
+        webrtcChannelId: result.webrtcChannelId,
+        isOfferer: true,
+      });
     } catch (e) {
       console.error("Call request error:", e);
       Alert.alert("오류", "통화 요청에 실패했습니다.");
     }
-  }, []);
+  }, [navigation]);
 
   // 날짜 포맷팅
   const formatFriendSince = (dateString: string) => {
@@ -189,11 +193,8 @@ export default function FriendListScreen() {
   const renderRequestItem = (request: PendingFriendRequest) => {
     const isProcessing = processingRequestId === request.id;
     return (
-      <MotiView
+      <View
         key={request.id}
-        from={{ opacity: 0, translateY: -8 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: "timing", duration: 300 } as any}
         className="mb-3 mx-4 p-4 rounded-2xl bg-purple-500/20 border border-purple-400/40"
       >
         <View className="flex-row items-center">
@@ -239,7 +240,7 @@ export default function FriendListScreen() {
             </Pressable>
           </View>
         </View>
-      </MotiView>
+      </View>
     );
   };
 
