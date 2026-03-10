@@ -5,20 +5,23 @@ import {
   Pressable,
   useWindowDimensions,
   StyleSheet,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { MotiView } from "moti";
 import { useSocketMatching } from "../hooks/useSocketMatching";
 import { useEffect } from "react";
+import CharacterBlob from "../components/CharacterBlob";
 
 type MatchingScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
   "Matching"
 >;
+
+const RIPPLE_COUNT = 4;
 
 export default function MatchingScreen() {
   const navigation = useNavigation<MatchingScreenNavigationProp>();
@@ -26,6 +29,27 @@ export default function MatchingScreen() {
   const charSize = Math.min(width * 0.4, 180);
   const { status, matchResult, error, startMatching, cancelMatching } =
     useSocketMatching();
+
+  // Ripple 애니메이션 (moti 대신 React Native Animated 사용)
+  const rippleAnims = React.useRef(
+    Array.from({ length: RIPPLE_COUNT }, () => new Animated.Value(0))
+  ).current;
+
+  useEffect(() => {
+    const animations = rippleAnims.map((anim, i) => {
+      anim.setValue(0);
+      return Animated.loop(
+        Animated.timing(anim, {
+          toValue: 1,
+          duration: 2000 + i * 200,
+          delay: i * 400,
+          useNativeDriver: true,
+        })
+      );
+    });
+    animations.forEach((a) => a.start());
+    return () => animations.forEach((a) => a.stop());
+  }, [rippleAnims]);
 
   useEffect(() => {
     startMatching();
@@ -67,56 +91,39 @@ export default function MatchingScreen() {
                 { width: charSize + 100, height: charSize + 100 },
               ]}
             >
-              {/* Ripple 애니메이션 (여러 개) */}
-              {[0, 1, 2, 3].map((i) => (
-                <MotiView
-                  key={i}
-                  from={{ scale: 0.8, opacity: 0.6 }}
-                  animate={{
-                    scale: 1.4 + i * 0.2,
-                    opacity: 0,
-                  }}
-                  transition={{
-                    type: "timing",
-                    duration: 2000 + i * 200,
-                  } as any}
-                  {...({ repeat: Infinity as any } as any)}
-                  style={[
-                    styles.ripple,
-                    {
-                      width: charSize + 100,
-                      height: charSize + 100,
-                      borderRadius: (charSize + 100) / 2,
-                    },
-                  ]}
-                />
-              ))}
+              {/* Ripple 애니메이션 */}
+              {rippleAnims.map((anim, i) => {
+                const scale = anim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.8, 1.4 + i * 0.2],
+                });
+                const opacity = anim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.6, 0],
+                });
+                return (
+                  <Animated.View
+                    key={i}
+                    style={[
+                      styles.ripple,
+                      {
+                        width: charSize + 100,
+                        height: charSize + 100,
+                        borderRadius: (charSize + 100) / 2,
+                        transform: [{ scale }],
+                        opacity,
+                      },
+                    ]}
+                  />
+                );
+              })}
 
               {/* 메인 캐릭터 */}
-              <View
-                style={[
-                  styles.characterBlob,
-                  { width: charSize, height: charSize, borderRadius: charSize / 2 },
-                ]}
-              >
-                <LinearGradient
-                  colors={["#FFB88C", "#F093A0", "#B88FCE"]}
-                  locations={[0, 0.5, 1]}
-                  style={[
-                    styles.characterGradient,
-                    { borderRadius: charSize / 2 },
-                  ]}
-                />
-                <View style={[styles.faceRow, { top: charSize * 0.38 }]}>
-                  <View style={styles.eyes}>
-                    <View style={styles.eye} />
-                    <View style={styles.eye} />
-                  </View>
-                </View>
-                <View style={[styles.faceRow, { top: charSize * 0.52 }]}>
-                  <View style={styles.mouth} />
-                </View>
-              </View>
+              <CharacterBlob
+                size={charSize}
+                colors={["#FFB88C", "#F093A0", "#B88FCE"]}
+                style={{ zIndex: 10 }}
+              />
             </View>
           </View>
 
@@ -157,42 +164,5 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(184, 143, 206, 0.3)",
     borderWidth: 2,
     borderColor: "rgba(184, 143, 206, 0.5)",
-  },
-  characterBlob: {
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 10,
-  },
-  characterGradient: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-  },
-  faceRow: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 11,
-  },
-  eyes: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  eye: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#1f2937",
-  },
-  mouth: {
-    width: 24,
-    height: 12,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    borderWidth: 2,
-    borderTopWidth: 0,
-    borderColor: "#374151",
   },
 });
