@@ -21,6 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useAuthStore } from "../store/authStore";
 import { updateProfile, updateProfileImage } from "../api/profile";
 import { getMe, logout as logoutApi, deleteAccount } from "../api/auth";
+import { updateLanguages } from "../api/languages";
 
 type MyPageNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, "MyPage">,
@@ -37,6 +38,12 @@ export default function MyPageScreen() {
   const [saving, setSaving] = React.useState(false);
   const [uploadingImage, setUploadingImage] = React.useState(false);
 
+  const [langEditing, setLangEditing] = React.useState(false);
+  const [editNative, setEditNative] = React.useState<string | null>(null);
+  const [editLearning, setEditLearning] = React.useState<string | null>(null);
+  const [editLevel, setEditLevel] = React.useState<"BEGINNER" | "INTERMEDIATE" | "ADVANCED">("BEGINNER");
+  const [langSaving, setLangSaving] = React.useState(false);
+
   React.useEffect(() => {
     getMe()
       .then((updated) => {
@@ -44,7 +51,7 @@ export default function MyPageScreen() {
         setNickname(updated.profile?.nickname ?? "");
         setBio(updated.profile?.bio ?? "");
       })
-      .catch(() => {});
+      .catch((e) => console.warn("getMe error:", e)); // H-6: 실패 시 최소 로그
   }, [setMe]);
 
   const handleLogout = () => {
@@ -54,9 +61,9 @@ export default function MyPageScreen() {
         text: "로그아웃",
         style: "destructive",
         onPress: async () => {
-          try { await logoutApi(); } catch {}
+          try { await logoutApi(); } catch (e) { console.warn("logoutApi error:", e); } // H-5: 실패 로그
           await logout();
-          navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+          navigation.reset({ index: 0, routes: [{ name: "Login" as never }] });
         },
       },
     ]);
@@ -69,9 +76,14 @@ export default function MyPageScreen() {
         text: "탈퇴",
         style: "destructive",
         onPress: async () => {
-          try { await deleteAccount(); } catch {}
+          try {
+            await deleteAccount();
+          } catch { // H-5: 탈퇴 실패 시 Alert, 진행 중단
+            Alert.alert("오류", "회원 탈퇴 중 오류가 발생했습니다. 다시 시도해 주세요.");
+            return;
+          }
           await logout();
-          navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+          navigation.reset({ index: 0, routes: [{ name: "Login" as never }] });
         },
       },
     ]);
@@ -84,7 +96,7 @@ export default function MyPageScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.images,
+      mediaTypes: "images",
       allowsEditing: false,
       quality: 0.8,
     });
@@ -121,9 +133,38 @@ export default function MyPageScreen() {
     }
   };
 
+  const LANGUAGES = ["ko", "en", "ja", "zh", "es", "fr", "de"];
+  const EDIT_LEVELS = ["BEGINNER", "INTERMEDIATE", "ADVANCED"] as const;
+
   const profileImageUrl = me?.profile?.profileImageUrl ?? null;
   const nativeLangs = me?.languages?.filter((l) => l.type === "NATIVE") ?? [];
   const learningLangs = me?.languages?.filter((l) => l.type === "LEARNING") ?? [];
+
+  const handleLangEditStart = () => {
+    setEditNative(nativeLangs[0]?.languageCode ?? null);
+    setEditLearning(learningLangs[0]?.languageCode ?? null);
+    setEditLevel((learningLangs[0]?.level as "BEGINNER" | "INTERMEDIATE" | "ADVANCED") ?? "BEGINNER");
+    setLangEditing(true);
+  };
+
+  const handleLangSave = async () => {
+    if (!editNative) { Alert.alert("선택 필요", "모국어를 선택해주세요."); return; }
+    if (!editLearning) { Alert.alert("선택 필요", "학습 언어를 선택해주세요."); return; }
+    setLangSaving(true);
+    try {
+      await updateLanguages([
+        { languageCode: editNative, type: "NATIVE", level: "NATIVE" },
+        { languageCode: editLearning, type: "LEARNING", level: editLevel },
+      ]);
+      const updated = await getMe();
+      setMe(updated);
+      setLangEditing(false);
+    } catch {
+      Alert.alert("오류", "언어 설정 저장에 실패했습니다.");
+    } finally {
+      setLangSaving(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -250,46 +291,124 @@ export default function MyPageScreen() {
 
           {/* 언어 카드 */}
           <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
-            <Text className="text-white text-lg font-bold mb-3">언어</Text>
-
-            {nativeLangs.length > 0 && (
-              <View className="mb-2">
-                <Text className="text-white/60 text-xs mb-1">모국어</Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {nativeLangs.map((l) => (
-                    <View
-                      key={l.id}
-                      className="px-3 py-1 rounded-full bg-purple-500/30 border border-purple-400/50"
-                    >
-                      <Text className="text-purple-200 text-sm">
-                        {l.languageCode.toUpperCase()}
-                      </Text>
-                    </View>
-                  ))}
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-white text-lg font-bold">언어</Text>
+              {!langEditing ? (
+                <Pressable onPress={handleLangEditStart}>
+                  <Text className="text-purple-400 text-sm font-semibold">편집</Text>
+                </Pressable>
+              ) : (
+                <View className="flex-row gap-3">
+                  <Pressable onPress={() => setLangEditing(false)}>
+                    <Text className="text-gray-400 text-sm">취소</Text>
+                  </Pressable>
+                  <Pressable onPress={handleLangSave} disabled={langSaving}>
+                    {langSaving ? (
+                      <ActivityIndicator size="small" color="#a78bfa" />
+                    ) : (
+                      <Text className="text-purple-400 text-sm font-semibold">저장</Text>
+                    )}
+                  </Pressable>
                 </View>
-              </View>
-            )}
+              )}
+            </View>
 
-            {learningLangs.length > 0 && (
-              <View>
-                <Text className="text-white/60 text-xs mb-1">학습 중</Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {learningLangs.map((l) => (
-                    <View
-                      key={l.id}
-                      className="px-3 py-1 rounded-full bg-blue-500/30 border border-blue-400/50"
-                    >
-                      <Text className="text-blue-200 text-sm">
-                        {l.languageCode.toUpperCase()} · {l.level}
-                      </Text>
+            {!langEditing ? (
+              <>
+                {nativeLangs.length > 0 && (
+                  <View className="mb-2">
+                    <Text className="text-white/60 text-xs mb-1">모국어</Text>
+                    <View className="flex-row flex-wrap gap-2">
+                      {nativeLangs.map((l) => (
+                        <View
+                          key={l.id}
+                          className="px-3 py-1 rounded-full bg-purple-500/30 border border-purple-400/50"
+                        >
+                          <Text className="text-purple-200 text-sm">
+                            {l.languageCode.toUpperCase()}
+                          </Text>
+                        </View>
+                      ))}
                     </View>
-                  ))}
+                  </View>
+                )}
+                {learningLangs.length > 0 && (
+                  <View>
+                    <Text className="text-white/60 text-xs mb-1">학습 중</Text>
+                    <View className="flex-row flex-wrap gap-2">
+                      {learningLangs.map((l) => (
+                        <View
+                          key={l.id}
+                          className="px-3 py-1 rounded-full bg-blue-500/30 border border-blue-400/50"
+                        >
+                          <Text className="text-blue-200 text-sm">
+                            {l.languageCode.toUpperCase()} · {l.level}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+                {nativeLangs.length === 0 && learningLangs.length === 0 && (
+                  <Text className="text-white/40 text-sm">설정된 언어가 없습니다.</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <Text className="text-white/60 text-xs mb-2">모국어</Text>
+                <View className="flex-row flex-wrap gap-2 mb-4">
+                  {LANGUAGES.map((lang) => {
+                    const selected = editNative === lang;
+                    return (
+                      <Pressable
+                        key={lang}
+                        onPress={() => setEditNative(lang)}
+                        style={[styles.langChip, selected && styles.langChipSelected]}
+                      >
+                        <Text style={selected ? styles.langChipTextSelected : styles.langChipText}>
+                          {lang.toUpperCase()}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-              </View>
-            )}
 
-            {nativeLangs.length === 0 && learningLangs.length === 0 && (
-              <Text className="text-white/40 text-sm">설정된 언어가 없습니다.</Text>
+                <Text className="text-white/60 text-xs mb-2">학습 언어</Text>
+                <View className="flex-row flex-wrap gap-2 mb-4">
+                  {LANGUAGES.map((lang) => {
+                    const selected = editLearning === lang;
+                    return (
+                      <Pressable
+                        key={lang}
+                        onPress={() => setEditLearning(lang)}
+                        style={[styles.langChip, selected && styles.langChipSelected]}
+                      >
+                        <Text style={selected ? styles.langChipTextSelected : styles.langChipText}>
+                          {lang.toUpperCase()}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text className="text-white/60 text-xs mb-2">학습 수준</Text>
+                <View className="flex-row gap-2">
+                  {EDIT_LEVELS.map((lv) => {
+                    const selected = editLevel === lv;
+                    return (
+                      <Pressable
+                        key={lv}
+                        onPress={() => setEditLevel(lv)}
+                        style={[styles.langChip, selected && styles.langChipSelected]}
+                      >
+                        <Text style={selected ? styles.langChipTextSelected : styles.langChipText}>
+                          {lv}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
             )}
           </View>
         </ScrollView>
@@ -335,4 +454,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
   },
+  langChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  langChipSelected: {
+    borderColor: "#8b5cf6",
+    backgroundColor: "#8b5cf6",
+  },
+  langChipText: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" },
+  langChipTextSelected: { color: "#fff", fontSize: 13, fontWeight: "600" },
 });
