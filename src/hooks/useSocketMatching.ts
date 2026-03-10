@@ -134,6 +134,7 @@ export function useSocketMatching() {
       if (socket) {
         socket.off("match:success");
         socket.off("match:error");
+        socket.off("disconnect"); // H-4: disconnect 리스너도 정리
       }
     };
   }, [stopPolling]);
