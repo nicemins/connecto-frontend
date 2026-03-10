@@ -39,14 +39,21 @@
 ## 3. 환경 변수 (`.env`)
 
 ```env
-EXPO_PUBLIC_API_URL=http://localhost:8080
-EXPO_PUBLIC_SOCKET_URL=http://localhost:9092
+EXPO_PUBLIC_API_URL=http://10.0.2.2:8080        # 에뮬레이터용 (실기기: PC LAN IP)
+EXPO_PUBLIC_SOCKET_URL=http://10.0.2.2:9092
+
+# Google OAuth 2.0 Client IDs
+EXPO_PUBLIC_ANDROID_CLIENT_ID=<android_client_id>.apps.googleusercontent.com
+EXPO_PUBLIC_WEB_CLIENT_ID=<web_client_id>.apps.googleusercontent.com
 
 # WebRTC TURN 서버 (선택 - 미설정 시 STUN only)
 EXPO_PUBLIC_TURN_URL=
 EXPO_PUBLIC_TURN_USERNAME=
 EXPO_PUBLIC_TURN_CREDENTIAL=
 ```
+
+> - 실기기 테스트 시: `EXPO_PUBLIC_API_URL=http://<PC LAN IP>:8080`
+> - 에뮬레이터: `10.0.2.2` (Android emulator host alias)
 
 > - REST API: 포트 **8080** (`/auth/...`, `/users/...`, `/match/...`, `/call/...`)
 > - Socket.IO: 포트 **9092** (별도 서버)
@@ -64,9 +71,9 @@ connecto-app/
 ├── src/
 │   ├── api/
 │   │   ├── client.ts          # Axios 인스턴스 + 401 interceptor (자동 갱신)
-│   │   ├── auth.ts            # signup, login, refresh, logout, deleteAccount, getMe, checkEmailAvailable
+│   │   ├── auth.ts            # signup, login, loginWithSocial, refresh, logout, deleteAccount, getMe, checkEmailAvailable
 │   │   ├── profile.ts         # createProfile, updateProfile, updateProfileImage, getMyProfile, checkNicknameAvailable
-│   │   ├── languages.ts       # saveLanguage, getInterests, saveInterests
+│   │   ├── languages.ts       # saveLanguage, getLanguages, updateLanguages, deleteLanguage, getInterests, saveInterests
 │   │   ├── match.ts           # getMatchResult
 │   │   ├── call.ts            # endCall, callAgain
 │   │   ├── socket.ts          # Socket.IO 싱글톤 (connectSocket, getSocket, disconnectSocket)
@@ -76,12 +83,14 @@ connecto-app/
 │   ├── store/
 │   │   └── authStore.ts       # Zustand: accessToken, refreshToken, me
 │   │                          # persistTokens, loadTokens, logout (모두 async)
+│   ├── components/
+│   │   └── CharacterBlob.tsx     # 공통 캐릭터 blob (size, colors props) — 4개 화면에서 재사용
 │   ├── hooks/
 │   │   ├── useSocketMatching.ts  # 매칭 + polling fallback + isOfferer 판단
 │   │   ├── useWebRTC.ts          # WebRTC offer/answer/ICE + TURN 설정
 │   │   └── useNotifications.ts   # Expo 푸시 알림
 │   ├── screens/
-│   │   ├── LoginScreen.tsx          # 로그인 + 프로필 체크 라우팅
+│   │   ├── LoginScreen.tsx          # 탭 UI: 소셜(Google/Kakao/Line) + 이메일/비밀번호
 │   │   ├── SignUpScreen.tsx
 │   │   ├── ProfileSetupScreen.tsx   # 닉네임 중복 확인 + createProfile
 │   │   ├── LanguageSetupScreen.tsx  # 언어 설정 → InterestsSetup 이동
@@ -191,7 +200,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 메서드 | 엔드포인트 | 설명 | BE 상태 |
 |--------|-----------|------|---------|
 | POST | `/auth/signup` | 회원가입 | ✅ |
-| POST | `/auth/login` | 로그인 → accessToken(body) + refreshToken(Set-Cookie) | ✅ |
+| POST | `/auth/login` | 이메일/비밀번호 로그인 → accessToken(body) + refreshToken(Set-Cookie) | ✅ |
+| POST | `/auth/social-login` | 소셜 로그인 `{ provider, token }` → accessToken + refreshToken | ✅ 2026-03-07 |
 | POST | `/auth/refresh` | 토큰 갱신 (Cookie 기반) | ✅ |
 | POST | `/auth/logout` | 로그아웃 | ✅ |
 
@@ -199,8 +209,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 | 메서드 | 엔드포인트 | 설명 | BE 상태 |
 |--------|-----------|------|---------|
-| GET | `/users/me` | user + profile + languages 통합 조회 | ✅ |
-| PUT | `/users/me` | 비밀번호 수정 | ✅ |
+| GET | `/users/me` | user + profile + languages + interests 통합 조회 | ✅ |
+| PUT | `/users/me` | 비밀번호 수정 `{ password }` | ✅ |
 | DELETE | `/users/me` | 회원 탈퇴 (soft delete) | ✅ |
 | GET | `/users/exists/email?email=` | 이메일 중복 확인 | ✅ |
 
@@ -209,7 +219,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 {
   user: { id: number, email: string, createdAt: string },
   profile: { id: number, nickname: string, profileImageUrl?: string, bio?: string } | null,
-  languages: Array<{ id: number, languageCode: string, type: "NATIVE"|"LEARNING", level: "BEGINNER"|"INTERMEDIATE"|"ADVANCED"|"NATIVE" }>
+  languages: Array<{ id: number, languageCode: string, type: "NATIVE"|"LEARNING", level: "BEGINNER"|"INTERMEDIATE"|"ADVANCED"|"NATIVE" }>,
+  interests: Array<{ id: number, tag: string }>
 }
 ```
 
@@ -231,9 +242,9 @@ Stack (RootNavigator) — initialRoute: "Login"
 | GET | `/users/me/languages` | 언어 목록 조회 | ✅ |
 | PUT | `/users/me/languages` | 언어 전체 교체 | ✅ |
 | DELETE | `/users/me/languages/{id}` | 언어 삭제 | ✅ |
-| POST | `/users/me/interests` | 관심사 저장 | ✅ 2026-03-06 |
-| GET | `/users/me/interests` | 관심사 조회 | ✅ 2026-03-06 |
-| DELETE | `/users/me/interests` | 관심사 삭제 | ✅ 2026-03-06 |
+| POST | `/users/me/interests` | 관심사 단건 추가 `{ tag: string }` → 201 (409: 중복) | ✅ 2026-03-06 |
+| GET | `/users/me/interests` | 관심사 조회 → `[{ id, tag }]` | ✅ 2026-03-06 |
+| DELETE | `/users/me/interests/{id}` | 관심사 단건 삭제 | ✅ 2026-03-06 |
 
 ### 6.5 매칭 (`/match`) — Redis 필요
 
@@ -255,17 +266,24 @@ Stack (RootNavigator) — initialRoute: "Login"
 |--------|-----------|------|---------|
 | POST | `/call/end` | 통화 종료 `{ sessionId }` | ✅ |
 | POST | `/call/again` | 재연결 의사 `{ sessionId, wantAgain }` | ✅ |
+| POST | `/call/request/{friendId}` | 친구에게 통화 요청 → `{ sessionId, webrtcChannelId, friendId }` + FCM 전송 | ✅ 2026-03-06 |
 
-### 6.7 친구 / 신고
+### 6.7 푸시 알림 (`/users/me/device-token`)
 
 | 메서드 | 엔드포인트 | 설명 | BE 상태 |
 |--------|-----------|------|---------|
-| GET | `/friends` | 친구 목록 | ✅ 2026-03-06 |
-| GET | `/friends/requests` | 받은 친구 요청 목록 | ✅ 2026-03-06 |
-| POST | `/friends/request` | 친구 신청 | ✅ 2026-03-06 |
+| POST | `/users/me/device-token` | FCM 디바이스 토큰 등록/갱신 `{ token, platform: "android"\|"ios" }` | ✅ 2026-03-09 |
+| DELETE | `/users/me/device-token` | 토큰 삭제 (logout 시 백엔드 자동 처리) | ✅ 2026-03-09 |
+
+### 6.8 친구 / 신고
+
+| 메서드 | 엔드포인트 | 설명 | BE 상태 |
+|--------|-----------|------|---------|
+| GET | `/friends` | 친구 목록 → `[{ friendshipId, userId, nickname, profileImageUrl, bio, friendSince }]` | ✅ 2026-03-06 |
+| GET | `/friends/requests` | 받은 친구 요청 목록 (PENDING) | ✅ 2026-03-06 |
+| POST | `/friends/request` | 친구 신청 `{ receiverId }` | ✅ 2026-03-06 |
 | PATCH | `/friends/request/{id}/accept` | 친구 요청 수락 | ✅ 2026-03-06 |
 | PATCH | `/friends/request/{id}/reject` | 친구 요청 거절 | ✅ 2026-03-06 |
-| POST | `/call/request/{friendId}` | 친구에게 통화 요청 | ✅ 2026-03-06 |
 | POST | `/reports` | 신고 `{ sessionId, reportedUserId, reason? }` | ✅ 2026-03-06 |
 
 ---
@@ -300,13 +318,13 @@ Stack (RootNavigator) — initialRoute: "Login"
 2. **매칭:** `POST /match/start` + `socket.emit("match:start")` → `match:success { sessionId, webrtcChannelId, isOfferer }` → CallScreen
 3. **WebRTC 통화:** `webrtc:join` → isOfferer가 offer 생성 → ICE 교환 → 5분 통화 → `POST /call/end` → MatchResultScreen
 4. **통화 결과:** 상대 프로필 조회 / 친구 신청(`POST /friends/request`) / 재연결(`POST /call/again`)
-5. **친구 관리:** 친구 목록(`GET /friends`) / 요청 수락·거절(`PATCH /friends/request/{id}/accept|reject`) / 친구 통화(`POST /call/request/{friendId}`)
+5. **친구 관리:** 친구 목록(`GET /friends`) / 요청 수락·거절(`PATCH /friends/request/{id}/accept|reject`) / 친구 통화(`POST /call/request/{friendId}`) → `{ sessionId, webrtcChannelId }` → CallScreen(isOfferer: true)
 
 ---
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-06
+> **마지막 업데이트:** 2026-03-10 (Swagger 기반 API 불일치 수정 — 관심사·친구통화 연동)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -314,24 +332,39 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 기능 | 주요 파일 | 비고 |
 |------|----------|------|
 | 회원가입 | `SignUpScreen.tsx`, `auth.ts` | 이메일 중복 확인 포함 |
-| 로그인 | `LoginScreen.tsx` | `!me.profile` 체크 → ProfileSetup or MainTabs |
+| 소셜 로그인 | `LoginScreen.tsx`, `auth.ts` | 탭 UI: Google OAuth 연동 ✅ / Kakao·Line 준비중, `loginWithSocial()` → `/auth/social-login` |
+| 이메일 로그인 | `LoginScreen.tsx` | 이메일 탭, `!me.profile` → ProfileSetup |
 | 프로필 설정 | `ProfileSetupScreen.tsx` | 닉네임 중복 확인 + `createProfile` |
-| 언어 설정 | `LanguageSetupScreen.tsx` | `saveLanguage()` → InterestsSetup 이동 |
-| 관심사 설정 | `InterestsSetupScreen.tsx`, `languages.ts` | `getInterests()` 로드 + 실 저장 |
+| 언어 설정 | `LanguageSetupScreen.tsx` | `saveLanguage()` → InterestsSetup 이동. 각 저장 독립 처리 (409는 성공으로 간주) |
+| 관심사 설정 | `InterestsSetupScreen.tsx`, `languages.ts` | `getInterests()` → `[{ id, tag }]` 정상 파싱. `saveInterests()` → GET→DELETE removed→POST added (단건씩) |
 | 토큰 영속화 | `authStore.ts` | SecureStore, `persistTokens` / `loadTokens` / `logout` |
 | 앱 시작 라우팅 | `App.tsx` | `isHydrating` → 토큰 복원 → `getMe` → 라우팅 |
 | 매칭 | `MatchingScreen.tsx`, `useSocketMatching.ts` | Socket + REST polling fallback |
 | WebRTC 통화 | `CallScreen.tsx`, `useWebRTC.ts` | `isOfferer` 서버 수신, TURN 설정, 30초 잠금, 재연결 |
 | 통화 결과 | `MatchResultScreen.tsx` | 상대 프로필, 친구 신청, 재연결, 신고 |
-| 친구 목록 | `FriendListScreen.tsx`, `friends.ts` | 실 API, 친구 요청 수락/거절, FriendDetail 모달 |
+| 친구 목록 | `FriendListScreen.tsx`, `friends.ts` | 실 API, 친구 요청 수락/거절, FriendDetail 모달, 친구 통화 요청 → CallScreen 이동 |
 | 마이페이지 | `MyPageScreen.tsx` | 프로필 조회·수정, 이미지 업로드(S3), 로그아웃, 회원 탈퇴 |
+| 언어 설정 편집 | `MyPageScreen.tsx`, `languages.ts` | MyPage 언어 카드 인라인 편집 (PUT /users/me/languages) |
+| 코드 품질 개선 | 다수 파일 | H-1~H-9 버그 수정, CharacterBlob 컴포넌트 추출 (app-quality) |
+| 푸시 알림 | `useNotifications.ts`, `notifications.ts` | FCM 디바이스 토큰, Android 채널, 포그라운드·탭 핸들러 (push-notifications) |
+| API 명세 동기화 | `languages.ts`, `friends.ts`, `auth.ts`, `FriendListScreen.tsx` | Swagger 기반 응답 형식 불일치 3건 수정 (2026-03-10) |
+
+### 코드 품질 규칙 (app-quality 2026-03-09 적용)
+
+- `handleEndCall`: `isEndingRef.current`로 race condition 방지, navigate는 try 블록 안에서만
+- 타이머: `timerRef.current`에 저장 → 통화 종료 시 즉시 clearInterval
+- 소켓 cleanup: `socket.off("disconnect")` 포함 필수
+- 에러 핸들링: API 실패 시 빈 catch 금지 — Alert 또는 console.warn 필수
+- WebRTC: `(pc as any)` 금지 → `RTCPeerConnectionWithEvents` 타입 사용
+- 공통 컴포넌트: `src/components/CharacterBlob.tsx` — 캐릭터 blob 재사용
+- `GoogleSignin.configure()`: 모듈 레벨 실행 금지 → `useEffect` 내부에서 실행
 
 ### 프론트엔드 미구현 / 개발 필요 🔧
 
-| 기능 | 우선순위 | BE 의존성 | 설명 |
-|------|----------|----------|------|
-| 언어 설정 편집 (MyPage) | 낮음 | ✅ | 현재 언어 표시만 됨, 수정 UI 없음 |
-| 푸시 알림 | 낮음 | ❌ | `useNotifications.ts` 준비됨 |
+| 기능 | 파일 | 상태 |
+|------|------|------|
+| 상대방 프로필 보기 | `MatchResultScreen.tsx` | 🔄 Plan 완료, Design 진행 예정 — 친구 연결 후 Modal로 상대 프로필 표시 |
+| Kakao·Line 로그인 | `LoginScreen.tsx` | ⏳ 백엔드 미지원 (Google만 지원), "준비 중" Alert 유지 |
 
 ### 백엔드 미구현 — 프론트 대응 현황 ⏳
 
