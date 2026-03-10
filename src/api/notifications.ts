@@ -1,22 +1,20 @@
 import { apiClient } from "./client";
 
-export type PushTokenUpdateResponse = {
+export type DeviceTokenResponse = {
   success: boolean;
-  data?: {
-    pushToken: string;
-  };
 };
 
 /**
- * 푸시 토큰 업데이트
- * POST /user/push-token
+ * FCM 디바이스 토큰 등록/갱신
+ * POST /users/me/device-token
  */
-export async function updatePushToken(
-  pushToken: string
-): Promise<PushTokenUpdateResponse> {
-  const { data } = await apiClient.post<PushTokenUpdateResponse>(
-    "/user/push-token",
-    { pushToken }
+export async function registerDeviceToken(
+  token: string,
+  platform: "android" | "ios"
+): Promise<DeviceTokenResponse> {
+  const { data } = await apiClient.post<DeviceTokenResponse>(
+    "/users/me/device-token",
+    { token, platform }
   );
   return data;
 }
