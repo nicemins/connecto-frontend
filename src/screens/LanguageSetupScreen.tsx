@@ -22,6 +22,19 @@ export default function LanguageSetupScreen() {
   const [level, setLevel] = React.useState<(typeof LEVELS)[number]>("BEGINNER");
   const [loading, setLoading] = React.useState(false);
 
+  const trySaveLanguage = async (data: Parameters<typeof saveLanguage>[0]) => {
+    try {
+      await saveLanguage(data);
+    } catch (e: unknown) {
+      // 이미 저장된 언어(409)는 성공으로 처리 — 재시도 시 중복 저장 방지
+      const status =
+        e && typeof e === "object" && "response" in e
+          ? (e as { response?: { status?: number } }).response?.status
+          : undefined;
+      if (status !== 409) throw e;
+    }
+  };
+
   const handleDone = async () => {
     if (!nativeLang) {
       Alert.alert("선택 필요", "모국어를 선택해주세요.");
@@ -33,13 +46,21 @@ export default function LanguageSetupScreen() {
     }
     setLoading(true);
     try {
-      await saveLanguage({ languageCode: nativeLang, type: "NATIVE", level: "NATIVE" });
-      await saveLanguage({ languageCode: learningLang, type: "LEARNING", level });
+      await trySaveLanguage({ languageCode: nativeLang, type: "NATIVE", level: "NATIVE" });
+      await trySaveLanguage({ languageCode: learningLang, type: "LEARNING", level });
       const me = await getMe();
       setMe(me);
       navigation.replace("InterestsSetup");
-    } catch {
-      Alert.alert("오류", "언어 설정에 실패했습니다.");
+    } catch (e: unknown) {
+      let msg = "언어 설정에 실패했습니다.";
+      if (e && typeof e === "object" && "response" in e) {
+        const res = (e as { response?: { status?: number; data?: { message?: string } } }).response;
+        if (res?.data?.message) msg = res.data.message;
+        else if (res?.status) msg = `서버 오류 (${res.status})`;
+      } else if (e && typeof e === "object" && "message" in e) {
+        msg = String((e as { message: unknown }).message);
+      }
+      Alert.alert("언어 설정 오류", msg);
     } finally {
       setLoading(false);
     }
