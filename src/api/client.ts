@@ -3,7 +3,7 @@ import { useAuthStore } from "../store/authStore";
 import { resetToLogin } from "../navigation/navigationRef";
 
 const baseURL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
+  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export const apiClient = axios.create({
   baseURL,
@@ -49,7 +49,7 @@ apiClient.interceptors.response.use(
       err.response?.status === 401 &&
       originalRequest?.url?.includes("/auth/refresh")
     ) {
-      useAuthStore.getState().logout();
+      await useAuthStore.getState().logout();
       resetToLogin();
       return Promise.reject(err);
     }
@@ -59,7 +59,7 @@ apiClient.interceptors.response.use(
 
       const { refreshToken } = useAuthStore.getState();
       if (!refreshToken) {
-        useAuthStore.getState().logout();
+        await useAuthStore.getState().logout();
         resetToLogin();
         return Promise.reject(err);
       }
@@ -84,7 +84,7 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        useAuthStore.getState().logout();
+        await useAuthStore.getState().logout();
         resetToLogin();
         return Promise.reject(refreshError);
       } finally {
