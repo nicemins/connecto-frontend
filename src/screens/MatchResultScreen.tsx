@@ -13,11 +13,12 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { MotiView } from "moti";
+
 import { requestFriend } from "../api/friends";
 import { reportUser } from "../api/report";
 import { callAgain } from "../api/call";
 import { getMatchResult, type MatchResultData } from "../api/match";
+import CharacterBlob from "../components/CharacterBlob";
 
 type MatchResultScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -55,7 +56,10 @@ export default function MatchResultScreen() {
   React.useEffect(() => {
     getMatchResult(sessionId)
       .then((result) => setPartnerProfile(result))
-      .catch(() => {});
+      .catch(() => {
+        // H-7: 실패 시 Alert로 사용자에게 알림
+        Alert.alert("알림", "상대방 정보를 불러오지 못했습니다.");
+      });
   }, [sessionId]);
 
   const resolvedPartnerId = partnerId ?? String(partnerProfile?.profile?.id ?? "");
@@ -173,13 +177,7 @@ export default function MatchResultScreen() {
           {/* 중앙: 통화 시간 서클 UI 및 캐릭터 */}
           <View className="items-center mb-8">
             {/* 통화 시간 서클 */}
-            <MotiView
-              from={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{
-                type: "timing",
-                duration: 600,
-              } as any}
+            <View
               style={[
                 styles.timeCircle,
                 {
@@ -200,18 +198,10 @@ export default function MatchResultScreen() {
                 </Text>
                 <Text className="text-base text-white/80">통화 시간</Text>
               </View>
-            </MotiView>
+            </View>
 
             {/* 문구 */}
-            <MotiView
-              from={{ translateY: 20, opacity: 0 }}
-              animate={{ translateY: 0, opacity: 1 }}
-              transition={{
-                type: "timing",
-                duration: 600,
-                delay: 200,
-              } as any}
-              className="mt-6"
+            <View className="mt-6"
             >
               {partnerNickname ? (
                 <Text className="text-2xl font-bold text-white text-center px-4">
@@ -222,48 +212,15 @@ export default function MatchResultScreen() {
                   {totalTime} 동안의 대화가 즐거웠나요?
                 </Text>
               )}
-            </MotiView>
+            </View>
 
-            {/* 상대방 캐릭터 (부드러운 애니메이션) */}
-            <MotiView
-              from={{ scale: 0, opacity: 0, rotate: "-180deg" }}
-              animate={{ scale: 1, opacity: 1, rotate: "0deg" }}
-              transition={{
-                type: "timing",
-                duration: 800,
-                delay: 400,
-              } as any}
-              className="mt-8"
-            >
-              <View
-                style={[
-                  styles.characterBlob,
-                  {
-                    width: charSize,
-                    height: charSize,
-                    borderRadius: charSize / 2,
-                  },
-                ]}
-              >
-                <LinearGradient
-                  colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
-                  locations={[0, 0.5, 1]}
-                  style={[
-                    styles.characterGradient,
-                    { borderRadius: charSize / 2 },
-                  ]}
-                />
-                <View style={[styles.faceRow, { top: charSize * 0.38 }]}>
-                  <View style={styles.eyes}>
-                    <View style={styles.eye} />
-                    <View style={styles.eye} />
-                  </View>
-                </View>
-                <View style={[styles.faceRow, { top: charSize * 0.52 }]}>
-                  <View style={styles.mouth} />
-                </View>
-              </View>
-            </MotiView>
+            {/* 상대방 캐릭터 */}
+            <View className="mt-8">
+              <CharacterBlob
+                size={charSize}
+                colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
+              />
+            </View>
           </View>
 
           {/* 친구 신청 섹션 */}
@@ -273,32 +230,7 @@ export default function MatchResultScreen() {
             </Text>
 
             {friendRequestStatus === "mutual" ? (
-              <MotiView
-                from={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{
-                  type: "timing",
-                  duration: 500,
-                } as any}
-                className="items-center"
-              >
-                {/* 축하 효과 - 펄스 애니메이션 */}
-                <MotiView
-                  from={{ scale: 1, opacity: 0.6 }}
-                  animate={{ scale: 1.1, opacity: 0 }}
-                  transition={{
-                    type: "timing",
-                    duration: 1500,
-                    repeat: Infinity,
-                  } as any}
-                  style={[
-                    StyleSheet.absoluteFillObject,
-                    {
-                      borderRadius: 16,
-                      backgroundColor: "#10B981",
-                    },
-                  ]}
-                />
+              <View className="items-center">
                 <View className="mb-4 px-4 py-3 rounded-2xl bg-green-500/20 border-2 border-green-400">
                   <Text className="text-base font-semibold text-green-200 text-center">
                     친구로 연결되었습니다!
@@ -315,7 +247,7 @@ export default function MatchResultScreen() {
                     프로필 보기
                   </Text>
                 </Pressable>
-              </MotiView>
+              </View>
             ) : (
               <Pressable
                 onPress={handleFriendRequest}
@@ -392,41 +324,5 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.3)",
     alignItems: "center",
     justifyContent: "center",
-  },
-  characterBlob: {
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  characterGradient: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-  },
-  faceRow: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 11,
-  },
-  eyes: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  eye: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#1f2937",
-  },
-  mouth: {
-    width: 24,
-    height: 12,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    borderWidth: 2,
-    borderTopWidth: 0,
-    borderColor: "#374151",
   },
 });
