@@ -23,6 +23,7 @@ export type UserMeResponse = {
     type: "NATIVE" | "LEARNING";
     level: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | "NATIVE";
   }>;
+  interests?: Array<{ id: number; tag: string }>;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -41,6 +42,26 @@ function extractRefreshToken(
 }
 
 // ── API Functions ─────────────────────────────────────────────────
+
+/**
+ * 소셜 로그인 (Google / Kakao / Line)
+ * POST /auth/social-login
+ * → accessToken (body) + refreshToken (Set-Cookie)
+ */
+export async function loginWithSocial(
+  provider: "google" | "kakao" | "line",
+  token: string
+): Promise<{ accessToken: string; refreshToken: string | null }> {
+  const response = await apiClient.post<{
+    success: boolean;
+    data: AuthTokenResponse;
+  }>("/auth/social-login", { provider, token });
+
+  const accessToken = response.data.data.accessToken;
+  const refreshToken = extractRefreshToken(response.headers["set-cookie"]);
+
+  return { accessToken, refreshToken };
+}
 
 /**
  * 회원가입
