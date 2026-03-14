@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  Modal,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -52,6 +54,7 @@ export default function MatchResultScreen() {
   const [isRequesting, setIsRequesting] = React.useState(false);
   const [isCallingAgain, setIsCallingAgain] = React.useState(false);
   const [isReporting, setIsReporting] = React.useState(false);
+  const [showProfileModal, setShowProfileModal] = React.useState(false);
 
   React.useEffect(() => {
     getMatchResult(sessionId)
@@ -62,8 +65,9 @@ export default function MatchResultScreen() {
       });
   }, [sessionId]);
 
-  const resolvedPartnerId = partnerId ?? String(partnerProfile?.profile?.id ?? "");
-  const resolvedPartnerNumericId = partnerProfile?.profile?.id ?? (partnerId ? parseInt(partnerId, 10) : null);
+  const resolvedPartnerId = String(partnerProfile?.profile?.id ?? "");
+  // SEC-M7: IDOR 방지 — 서버 반환 ID만 사용 (route params의 partnerId 폴백 제거)
+  const resolvedPartnerNumericId = partnerProfile?.profile?.id ?? null;
 
   const handleFriendRequest = React.useCallback(async () => {
     if (!resolvedPartnerNumericId) {
@@ -89,7 +93,7 @@ export default function MatchResultScreen() {
         setFriendRequestStatus("requested");
       }
     } catch (e) {
-      console.error("Friend request error:", e);
+      if (__DEV__) console.error("Friend request error:", e);
       Alert.alert("오류", "친구 신청 중 오류가 발생했습니다.");
     } finally {
       setIsRequesting(false);
@@ -115,7 +119,7 @@ export default function MatchResultScreen() {
         ]
       );
     } catch (e) {
-      console.error("Call again error:", e);
+      if (__DEV__) console.error("Call again error:", e);
       Alert.alert("오류", "재연결 요청 중 오류가 발생했습니다.");
     } finally {
       setIsCallingAgain(false);
@@ -141,7 +145,7 @@ export default function MatchResultScreen() {
               Alert.alert("신고 완료", "신고가 접수되었습니다. 검토 후 조치하겠습니다.");
               navigation.replace("MainTabs");
             } catch (e) {
-              console.error("Report error:", e);
+              if (__DEV__) console.error("Report error:", e);
               Alert.alert("오류", "신고 중 오류가 발생했습니다.");
             } finally {
               setIsReporting(false);
@@ -237,10 +241,7 @@ export default function MatchResultScreen() {
                   </Text>
                 </View>
                 <Pressable
-                  onPress={() => {
-                    // TODO: 프로필 화면으로 이동
-                    Alert.alert("알림", "프로필 기능은 준비 중입니다.");
-                  }}
+                  onPress={() => setShowProfileModal(true)}
                   className="h-12 w-full items-center justify-center rounded-2xl bg-white/20 border border-white/30"
                 >
                   <Text className="text-base font-semibold text-white">
@@ -308,6 +309,60 @@ export default function MatchResultScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      {/* 상대방 프로필 Modal */}
+      <Modal
+        visible={showProfileModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowProfileModal(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowProfileModal(false)}
+        >
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <LinearGradient
+              colors={["#3B0764", "#1E3A8A"]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            />
+            {/* 닫기 핸들 */}
+            <View style={styles.modalHandle} />
+
+            {/* 프로필 이미지 */}
+            <View className="items-center mt-4 mb-4">
+              {partnerProfile?.profile?.profileImageUrl ? (
+                <Image
+                  source={{ uri: partnerProfile.profile.profileImageUrl }}
+                  style={styles.profileImage}
+                />
+              ) : (
+                <CharacterBlob size={80} colors={["#60A5FA", "#3B82F6", "#8B5CF6"]} />
+              )}
+            </View>
+
+            {/* 닉네임 */}
+            <Text className="text-xl font-bold text-white text-center mb-2">
+              {partnerProfile?.profile?.nickname ?? "알 수 없음"}
+            </Text>
+
+            {/* bio */}
+            <Text className="text-sm text-white/70 text-center px-6 mb-6">
+              {partnerProfile?.profile?.bio ?? "소개가 없습니다"}
+            </Text>
+
+            {/* 닫기 버튼 */}
+            <Pressable
+              onPress={() => setShowProfileModal(false)}
+              className="mx-6 h-11 items-center justify-center rounded-2xl bg-white/20 border border-white/30"
+            >
+              <Text className="text-base font-semibold text-white">닫기</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -324,5 +379,32 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.3)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  modalCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: 32,
+    overflow: "hidden",
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  profileImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
   },
 });

@@ -324,7 +324,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-10 (Swagger 기반 API 불일치 수정 — 관심사·친구통화 연동)
+> **마지막 업데이트:** 2026-03-14 (SEC-H1 완료 — TURN 자격증명 서버 API 연동)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -348,6 +348,9 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 코드 품질 개선 | 다수 파일 | H-1~H-9 버그 수정, CharacterBlob 컴포넌트 추출 (app-quality) |
 | 푸시 알림 | `useNotifications.ts`, `notifications.ts` | FCM 디바이스 토큰, Android 채널, 포그라운드·탭 핸들러 (push-notifications) |
 | API 명세 동기화 | `languages.ts`, `friends.ts`, `auth.ts`, `FriendListScreen.tsx` | Swagger 기반 응답 형식 불일치 3건 수정 (2026-03-10) |
+| 상대방 프로필 보기 | `MatchResultScreen.tsx` | MatchResultScreen 친구 연결 완료 시 "프로필 보기" 버튼 → Modal 표시 (partner-profile, 100% 설계 일치) |
+| 보안 수정 (프론트) | `LoginScreen.tsx`, `SignUpScreen.tsx`, `socket.ts`, `MyPageScreen.tsx`, `MatchResultScreen.tsx`, `useWebRTC.ts`, `babel.config.js` | SEC-H3 rate limiting, SEC-H4 소켓 auth 복구, SEC-M1 maxLength, SEC-M2 프로덕션 console 제거, SEC-M4 이미지 검증 강화, SEC-M7 IDOR 방지, SEC-L2 비밀번호 초기화, SEC-L3 탈퇴 재인증 Modal |
+| TURN 자격증명 보안 (SEC-H1) | `src/api/webrtc.ts`, `src/hooks/useWebRTC.ts` | GET /webrtc/turn-credentials API 연동, 실패 시 STUN only fallback |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 
@@ -363,8 +366,44 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 | 기능 | 파일 | 상태 |
 |------|------|------|
-| 상대방 프로필 보기 | `MatchResultScreen.tsx` | 🔄 Plan 완료, Design 진행 예정 — 친구 연결 후 Modal로 상대 프로필 표시 |
 | Kakao·Line 로그인 | `LoginScreen.tsx` | ⏳ 백엔드 미지원 (Google만 지원), "준비 중" Alert 유지 |
+
+### 보안 수정 현황 🔒 (감사: 2026-03-11 / 프론트 수정: 2026-03-13)
+
+> 전체 보고서: `docs/02-design/security-spec.md` (감사 시 종합 점수 64/100)
+
+#### Critical — 배포 전 필수 (인프라/백엔드 작업 필요)
+
+| ID | 문제 | 파일 | 수정 방법 | 상태 |
+|----|------|------|----------|------|
+| SEC-C1 | 모든 API/Socket.IO가 HTTP (MITM 취약) | `.env`, `client.ts`, `socket.ts` | 프로덕션 URL을 HTTPS/WSS로 교체 | ⏳ 인프라 작업 필요 |
+| SEC-C2 | refreshToken 평문 Cookie 헤더 전송 (HTTP) | `src/api/auth.ts:107` | HTTPS 전환 시 동시 해결 | ⏳ SEC-C1 해결 시 자동 해결 |
+
+#### High — 출시 전 수정
+
+| ID | 문제 | 파일 | 상태 |
+|----|------|------|------|
+| SEC-H1 | TURN 자격증명 JS 번들 포함 위험 | `src/api/webrtc.ts`, `src/hooks/useWebRTC.ts` | ✅ 완료 (2026-03-14) — GET /webrtc/turn-credentials API 호출, 실패 시 STUN only fallback |
+| SEC-H2 | Google OAuth Web Client ID 번들 노출 | `.env` | ⏳ GCP Console authorized URI 제한 필요 |
+| SEC-H3 | 로그인·회원가입 폼 rate limiting 없음 | `LoginScreen.tsx`, `SignUpScreen.tsx` | ✅ 완료 (2026-03-13) — exponential backoff + 30초 쿨다운 |
+| SEC-H4 | Socket.IO auth 에러 시 토큰 갱신 미구현 | `socket.ts` | ✅ 완료 (2026-03-13) — connect_error → refresh → 재연결 |
+
+#### Medium — 이후 개선
+
+| ID | 문제 | 파일 | 상태 |
+|----|------|------|------|
+| SEC-M1 | 닉네임·bio `maxLength` 미설정 | `MyPageScreen.tsx` | ✅ 완료 (2026-03-13) — maxLength 30/500 |
+| SEC-M2 | `console.*` 프로덕션 노출 | 다수 파일 | ✅ 완료 (2026-03-13) — babel-plugin-transform-remove-console + __DEV__ 가드 |
+| SEC-M4 | 이미지 fileSize undefined 통과 / 치수 미검증 | `MyPageScreen.tsx` | ✅ 완료 (2026-03-13) — undefined 차단 + width/height 검증 |
+| SEC-M6 | Axios 인증서 피닝 없음 | `client.ts` | ⏳ SEC-C1 (HTTPS 전환) 완료 후 구현 — Bare workflow 확인됨, react-native-ssl-pinning 도입 가능하나 HTTP 환경에서 피닝 불가 (인증서 해시 미확정) |
+| SEC-M7 | IDOR 위험 (partnerId 로컬 폴백 사용) | `MatchResultScreen.tsx` | ✅ 완료 (2026-03-13) — 서버 반환 ID만 사용 |
+
+#### Low — 백로그
+
+| ID | 문제 | 상태 |
+|----|------|------|
+| SEC-L2 | 폼 제출 후 비밀번호 state 미삭제 | ✅ 완료 (2026-03-13) — finally 블록에서 setPassword('') |
+| SEC-L3 | 회원 탈퇴 재인증 없음 | ✅ 완료 (2026-03-13) — 비밀번호 재인증 Modal |
 
 ### 백엔드 미구현 — 프론트 대응 현황 ⏳
 

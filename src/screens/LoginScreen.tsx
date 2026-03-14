@@ -29,11 +29,11 @@ type LoginScreenNavigationProp = NativeStackNavigationProp<
 
 function getErrorMessage(e: unknown): string {
   if (e && typeof e === "object" && "response" in e) {
-    const r = (e as { response?: { data?: { message?: string } } }).response;
-    if (r?.data?.message) return r.data.message;
+    const status = (e as { response?: { status?: number } }).response?.status;
+    if (status === 401 || status === 403) return "이메일 또는 비밀번호가 올바르지 않습니다.";
+    if (status === 429) return "잠시 후 다시 시도해주세요.";
+    if (status && status >= 500) return "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
   }
-  if (e && typeof e === "object" && "message" in e)
-    return String((e as { message: unknown }).message);
   return "로그인에 실패했습니다.";
 }
 
@@ -47,6 +47,37 @@ export default function LoginScreen() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState<string | null>(null);
+
+  // SEC-H3: 로그인 실패 rate limiting
+  const [failCount, setFailCount] = React.useState(0);
+  const [cooldownUntil, setCooldownUntil] = React.useState(0);
+  const [cooldownRemaining, setCooldownRemaining] = React.useState(0);
+  const cooldownTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function getBackoffMs(count: number): number {
+    if (count >= 5) return 30_000;
+    return Math.min(1000 * Math.pow(2, count - 1), 16_000);
+  }
+
+  function startCooldownTimer(until: number) {
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    cooldownTimerRef.current = setInterval(() => {
+      const remaining = Math.ceil((until - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setCooldownRemaining(0);
+        clearInterval(cooldownTimerRef.current!);
+        cooldownTimerRef.current = null;
+      } else {
+        setCooldownRemaining(remaining);
+      }
+    }, 1000);
+  }
+
+  React.useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    };
+  }, []);
 
   // M-3: 모듈 레벨 실행 대신 useEffect 내에서 초기화
   React.useEffect(() => {
@@ -69,7 +100,7 @@ export default function LoginScreen() {
         return;
       }
       const { accessToken, refreshToken } = await loginWithSocial("google", idToken);
-      await persistTokens(accessToken, refreshToken ?? undefined);
+      await persistTokens(accessToken, refreshToken ?? null);
       const me = await getMe();
       setMe(me);
       if (!me.profile) {
@@ -102,6 +133,9 @@ export default function LoginScreen() {
   };
 
   const handleEmailLogin = async () => {
+    // SEC-H3: 쿨다운 중이면 차단
+    if (Date.now() < cooldownUntil) return;
+
     if (!email.trim() || !password) {
       Alert.alert("입력 오류", "이메일과 비밀번호를 모두 입력해주세요.");
       return;
@@ -109,18 +143,28 @@ export default function LoginScreen() {
     setLoading("email");
     try {
       const { accessToken, refreshToken } = await login(email.trim(), password);
-      await persistTokens(accessToken, refreshToken ?? undefined);
+      await persistTokens(accessToken, refreshToken ?? null);
       const me = await getMe();
       setMe(me);
+      setFailCount(0); // 성공 시 실패 카운트 초기화
       if (!me.profile) {
         navigation.replace("ProfileSetup");
       } else {
         navigation.replace("MainTabs");
       }
     } catch (e: unknown) {
+      // SEC-H3: 실패 시 backoff 계산
+      const newCount = failCount + 1;
+      setFailCount(newCount);
+      const backoff = getBackoffMs(newCount);
+      const until = Date.now() + backoff;
+      setCooldownUntil(until);
+      setCooldownRemaining(Math.ceil(backoff / 1000));
+      startCooldownTimer(until);
       Alert.alert("로그인 실패", getErrorMessage(e));
     } finally {
       setLoading(null);
+      setPassword(""); // SEC-L2: 비밀번호 state 초기화
     }
   };
 
@@ -247,6 +291,7 @@ export default function LoginScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!busy}
+                  maxLength={254}
                 />
                 <TextInput
                   style={styles.input}
@@ -258,11 +303,12 @@ export default function LoginScreen() {
                   editable={!busy}
                   onSubmitEditing={handleEmailLogin}
                   returnKeyType="go"
+                  maxLength={128}
                 />
 
                 <Pressable
                   onPress={handleEmailLogin}
-                  disabled={busy}
+                  disabled={busy || cooldownRemaining > 0}
                   style={styles.loginButton}
                 >
                   <LinearGradient
@@ -270,12 +316,14 @@ export default function LoginScreen() {
                     locations={[0, 0.5, 1]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
-                    style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+                    style={[StyleSheet.absoluteFill, { borderRadius: 14, opacity: cooldownRemaining > 0 ? 0.5 : 1 }]}
                   />
                   {loading === "email" ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text className="text-base font-semibold text-white">로그인</Text>
+                    <Text className="text-base font-semibold text-white">
+                      {cooldownRemaining > 0 ? `${cooldownRemaining}초 후 재시도` : "로그인"}
+                    </Text>
                   )}
                 </Pressable>
 

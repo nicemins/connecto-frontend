@@ -26,11 +26,11 @@ type SignUpScreenNavigationProp = NativeStackNavigationProp<
 
 function getErrorMessage(e: unknown): string {
   if (e && typeof e === "object" && "response" in e) {
-    const r = (e as { response?: { data?: { message?: string } } }).response;
-    if (r?.data?.message) return r.data.message;
+    const status = (e as { response?: { status?: number } }).response?.status;
+    if (status === 409) return "이미 사용 중인 이메일입니다.";
+    if (status === 429) return "잠시 후 다시 시도해주세요.";
+    if (status && status >= 500) return "서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
   }
-  if (e && typeof e === "object" && "message" in e)
-    return String((e as { message: unknown }).message);
   return "회원가입에 실패했습니다.";
 }
 
@@ -45,6 +45,37 @@ export default function SignUpScreen() {
   const [emailChecked, setEmailChecked] = React.useState<boolean | null>(null);
   const [checkingEmail, setCheckingEmail] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+
+  // SEC-H3: 회원가입 실패 rate limiting
+  const [failCount, setFailCount] = React.useState(0);
+  const [cooldownUntil, setCooldownUntil] = React.useState(0);
+  const [cooldownRemaining, setCooldownRemaining] = React.useState(0);
+  const cooldownTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function getBackoffMs(count: number): number {
+    if (count >= 5) return 30_000;
+    return Math.min(1000 * Math.pow(2, count - 1), 16_000);
+  }
+
+  function startCooldownTimer(until: number) {
+    if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    cooldownTimerRef.current = setInterval(() => {
+      const remaining = Math.ceil((until - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setCooldownRemaining(0);
+        clearInterval(cooldownTimerRef.current!);
+        cooldownTimerRef.current = null;
+      } else {
+        setCooldownRemaining(remaining);
+      }
+    }, 1000);
+  }
+
+  React.useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) clearInterval(cooldownTimerRef.current);
+    };
+  }, []);
 
   const handleCheckEmail = async () => {
     const trimmed = email.trim();
@@ -72,6 +103,9 @@ export default function SignUpScreen() {
   };
 
   const handleSignUp = async () => {
+    // SEC-H3: 쿨다운 중이면 차단
+    if (Date.now() < cooldownUntil) return;
+
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password || !confirmPassword) {
       Alert.alert("입력 오류", "모든 항목을 입력해주세요.");
@@ -89,6 +123,10 @@ export default function SignUpScreen() {
       Alert.alert("비밀번호 오류", "비밀번호는 8자 이상이어야 합니다.");
       return;
     }
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      Alert.alert("비밀번호 오류", "비밀번호는 영문과 숫자를 모두 포함해야 합니다.");
+      return;
+    }
     if (password !== confirmPassword) {
       Alert.alert("비밀번호 오류", "비밀번호가 일치하지 않습니다.");
       return;
@@ -97,13 +135,24 @@ export default function SignUpScreen() {
     setLoading(true);
     try {
       await signup(trimmedEmail, password);
+      setFailCount(0); // 성공 시 초기화
       Alert.alert("회원가입 성공", "로그인해주세요.", [
         { text: "확인", onPress: () => navigation.replace("Login") },
       ]);
     } catch (e: unknown) {
+      // SEC-H3: 실패 시 backoff 계산
+      const newCount = failCount + 1;
+      setFailCount(newCount);
+      const backoff = getBackoffMs(newCount);
+      const until = Date.now() + backoff;
+      setCooldownUntil(until);
+      setCooldownRemaining(Math.ceil(backoff / 1000));
+      startCooldownTimer(until);
       Alert.alert("회원가입 실패", getErrorMessage(e));
     } finally {
       setLoading(false);
+      setPassword(""); // SEC-L2: 비밀번호 state 초기화
+      setConfirmPassword("");
     }
   };
 
@@ -181,6 +230,7 @@ export default function SignUpScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!loading}
+                  maxLength={254}
                 />
                 <Pressable
                   onPress={handleCheckEmail}
@@ -204,12 +254,13 @@ export default function SignUpScreen() {
               {/* 비밀번호 */}
               <TextInput
                 style={styles.input}
-                placeholder="비밀번호 (8자 이상)"
+                placeholder="비밀번호 (영문+숫자 8자 이상)"
                 placeholderTextColor="#9ca3af"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
                 editable={!loading}
+                maxLength={128}
               />
 
               {/* 비밀번호 확인 */}
@@ -228,12 +279,13 @@ export default function SignUpScreen() {
                 editable={!loading}
                 onSubmitEditing={handleSignUp}
                 returnKeyType="go"
+                maxLength={128}
               />
 
               {/* 가입 버튼 */}
               <Pressable
                 onPress={handleSignUp}
-                disabled={loading}
+                disabled={loading || cooldownRemaining > 0}
                 className="h-14 items-center justify-center rounded-2xl disabled:opacity-60"
                 style={styles.signupButton}
               >
@@ -242,13 +294,15 @@ export default function SignUpScreen() {
                   locations={[0, 0.5, 1]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFill}
+                  style={[StyleSheet.absoluteFill, { opacity: cooldownRemaining > 0 ? 0.5 : 1 }]}
                   className="rounded-2xl"
                 />
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text className="text-base font-semibold text-white">가입하기</Text>
+                  <Text className="text-base font-semibold text-white">
+                    {cooldownRemaining > 0 ? `${cooldownRemaining}초 후 재시도` : "가입하기"}
+                  </Text>
                 )}
               </Pressable>
 

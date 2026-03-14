@@ -14,7 +14,7 @@ interface AuthState {
   setAccessToken: (token: string | null) => void;
   setRefreshToken: (token: string | null) => void;
   setMe: (me: UserMeResponse | null) => void;
-  persistTokens: (accessToken: string, refreshToken?: string) => Promise<void>;
+  persistTokens: (accessToken: string, refreshToken?: string | null) => Promise<void>;
   loadTokens: () => Promise<{ accessToken: string | null; refreshToken: string | null }>;
   logout: () => Promise<void>;
 }
@@ -31,7 +31,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   persistTokens: async (accessToken, refreshToken) => {
     set({ accessToken, ...(refreshToken !== undefined && { refreshToken }) });
     await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
-    if (refreshToken) await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+    if (refreshToken) {
+      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+    } else if (refreshToken === null) {
+      // null = 로그인 시 토큰 미발급 → 기존 stale token 삭제
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+      set((prev) => ({ ...prev, refreshToken: null }));
+    }
+    // undefined = 토큰 갱신 흐름(기존 유지)
   },
 
   loadTokens: async () => {

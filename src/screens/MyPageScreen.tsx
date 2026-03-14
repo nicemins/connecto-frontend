@@ -9,6 +9,7 @@ import {
   Image,
   TextInput,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -20,7 +21,7 @@ import type { MainTabParamList, RootStackParamList } from "../navigation/types";
 import * as ImagePicker from "expo-image-picker";
 import { useAuthStore } from "../store/authStore";
 import { updateProfile, updateProfileImage } from "../api/profile";
-import { getMe, logout as logoutApi, deleteAccount } from "../api/auth";
+import { login, getMe, logout as logoutApi, deleteAccount } from "../api/auth";
 import { updateLanguages } from "../api/languages";
 
 type MyPageNavigationProp = CompositeNavigationProp<
@@ -37,6 +38,11 @@ export default function MyPageScreen() {
   const [editing, setEditing] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [uploadingImage, setUploadingImage] = React.useState(false);
+
+  // SEC-L3: 회원 탈퇴 재인증 Modal 상태
+  const [showDeleteModal, setShowDeleteModal] = React.useState(false);
+  const [deletePassword, setDeletePassword] = React.useState("");
+  const [deleteLoading, setDeleteLoading] = React.useState(false);
 
   const [langEditing, setLangEditing] = React.useState(false);
   const [editNative, setEditNative] = React.useState<string | null>(null);
@@ -73,20 +79,44 @@ export default function MyPageScreen() {
     Alert.alert("회원 탈퇴", "탈퇴하면 모든 데이터가 삭제됩니다.\n정말 탈퇴하시겠어요?", [
       { text: "취소", style: "cancel" },
       {
-        text: "탈퇴",
+        text: "계속",
         style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteAccount();
-          } catch { // H-5: 탈퇴 실패 시 Alert, 진행 중단
-            Alert.alert("오류", "회원 탈퇴 중 오류가 발생했습니다. 다시 시도해 주세요.");
-            return;
-          }
-          await logout();
-          navigation.reset({ index: 0, routes: [{ name: "Login" as never }] });
-        },
+        // SEC-L3: Alert 확인 후 비밀번호 재인증 Modal 표시
+        onPress: () => setShowDeleteModal(true),
       },
     ]);
+  };
+
+  // SEC-L3: 비밀번호 재인증 후 탈퇴 처리
+  const handleConfirmDelete = async () => {
+    if (!deletePassword) {
+      Alert.alert("입력 오류", "비밀번호를 입력해주세요.");
+      return;
+    }
+    const email = me?.user?.email;
+    if (!email) {
+      Alert.alert("오류", "계정 정보를 찾을 수 없습니다.");
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      await login(email, deletePassword);
+    } catch {
+      Alert.alert("인증 실패", "비밀번호가 올바르지 않습니다.");
+      setDeleteLoading(false);
+      return;
+    }
+    try {
+      await deleteAccount();
+      setShowDeleteModal(false);
+      await logout();
+      navigation.reset({ index: 0, routes: [{ name: "Login" as never }] });
+    } catch {
+      Alert.alert("오류", "회원 탈퇴 중 오류가 발생했습니다. 다시 시도해 주세요.");
+    } finally {
+      setDeleteLoading(false);
+      setDeletePassword("");
+    }
   };
 
   const handlePickImage = async () => {
@@ -102,9 +132,26 @@ export default function MyPageScreen() {
     });
     if (result.canceled || !result.assets[0]) return;
 
+    const asset = result.assets[0];
+    const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+    // SEC-M4: fileSize undefined 시 차단 (기존 코드는 undefined를 통과시켰음)
+    if (asset.fileSize === undefined || asset.fileSize === null) {
+      Alert.alert("오류", "파일 크기를 확인할 수 없습니다.");
+      return;
+    }
+    if (asset.fileSize > MAX_SIZE) {
+      Alert.alert("파일 크기 초과", "이미지는 5MB 이하만 업로드할 수 있습니다.");
+      return;
+    }
+    // SEC-M4: 유효하지 않은 이미지 차단 (너비/높이 0)
+    if (!asset.width || !asset.height || asset.width <= 0 || asset.height <= 0) {
+      Alert.alert("오류", "유효하지 않은 이미지입니다.");
+      return;
+    }
+
     setUploadingImage(true);
     try {
-      await updateProfileImage(result.assets[0].uri);
+      await updateProfileImage(asset.uri);
       const updated = await getMe();
       setMe(updated);
     } catch {
@@ -248,6 +295,7 @@ export default function MyPageScreen() {
                   onChangeText={setNickname}
                   placeholder="닉네임"
                   placeholderTextColor="#6b7280"
+                  maxLength={30}
                 />
               ) : (
                 <Text className="text-white text-base">
@@ -266,6 +314,7 @@ export default function MyPageScreen() {
                   placeholder="자기소개를 입력해주세요"
                   placeholderTextColor="#6b7280"
                   multiline
+                  maxLength={500}
                 />
               ) : (
                 <Text className="text-white/80 text-sm">
@@ -413,6 +462,57 @@ export default function MyPageScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      {/* SEC-L3: 회원 탈퇴 재인증 Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowDeleteModal(false);
+          setDeletePassword("");
+        }}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalCard}>
+            <Text style={styles.deleteModalTitle}>탈퇴 확인</Text>
+            <Text style={styles.deleteModalDesc}>
+              비밀번호를 입력하여 본인 확인을 해주세요.
+            </Text>
+            <TextInput
+              style={styles.deleteModalInput}
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              secureTextEntry
+              placeholder="비밀번호"
+              placeholderTextColor="#9ca3af"
+              maxLength={128}
+              editable={!deleteLoading}
+            />
+            <Pressable
+              onPress={handleConfirmDelete}
+              disabled={deleteLoading}
+              style={[styles.deleteModalButton, { backgroundColor: "#ef4444" }]}
+            >
+              {deleteLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.deleteModalButtonText}>탈퇴하기</Text>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setShowDeleteModal(false);
+                setDeletePassword("");
+              }}
+              disabled={deleteLoading}
+              style={[styles.deleteModalButton, { backgroundColor: "rgba(255,255,255,0.15)", marginTop: 8 }]}
+            >
+              <Text style={[styles.deleteModalButtonText, { color: "rgba(255,255,255,0.7)" }]}>취소</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -468,4 +568,55 @@ const styles = StyleSheet.create({
   },
   langChipText: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" },
   langChipTextSelected: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  // SEC-L3: 탈퇴 재인증 Modal 스타일
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  deleteModalCard: {
+    width: "100%",
+    backgroundColor: "#1e1e2e",
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  deleteModalTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  deleteModalDesc: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  deleteModalInput: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "#fff",
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    marginBottom: 16,
+  },
+  deleteModalButton: {
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteModalButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
+  },
 });

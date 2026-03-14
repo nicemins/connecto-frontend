@@ -8,6 +8,7 @@ const baseURL =
 export const apiClient = axios.create({
   baseURL,
   headers: { "Content-Type": "application/json" },
+  timeout: 15000,
 });
 
 // ── Request: accessToken 주입 ──────────────────────────────────

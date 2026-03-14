@@ -7,6 +7,7 @@ import {
   MediaStream,
 } from "react-native-webrtc";
 import { getSocket } from "../api/socket";
+import { getTurnCredentials } from "../api/webrtc";
 import type { Socket } from "socket.io-client";
 
 // WebRTC 시그널링 타입 정의
@@ -65,22 +66,8 @@ export function useWebRTC({
   const isOffererRef = useRef<boolean>(false);
   const isInitializedRef = useRef<boolean>(false);
 
-  // STUN/TURN 서버 설정
-  const turnUrl = process.env.EXPO_PUBLIC_TURN_URL;
-  const iceServers = {
-    iceServers: [
-      { urls: ["stun:stun.l.google.com:19302"] },
-      ...(turnUrl
-        ? [
-            {
-              urls: turnUrl,
-              username: process.env.EXPO_PUBLIC_TURN_USERNAME ?? "",
-              credential: process.env.EXPO_PUBLIC_TURN_CREDENTIAL ?? "",
-            },
-          ]
-        : []),
-    ],
-  };
+  // STUN only fallback (API 실패 시)
+  const STUN_ONLY = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
   // 마이크 권한 확인 및 로컬 스트림 생성
   // react-native-webrtc의 getUserMedia는 자동으로 권한을 요청합니다
@@ -108,26 +95,34 @@ export function useWebRTC({
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "마이크 접근 실패";
-      console.error("initializeLocalStream error:", error);
+      if (__DEV__) console.error("initializeLocalStream error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
       throw error;
     }
   }, []);
 
-  // PeerConnection 초기화
-  const initializePeerConnection = useCallback(() => {
+  // PeerConnection 초기화 (TURN 자격증명 API 호출 포함)
+  const initializePeerConnection = useCallback(async () => {
     if (peerConnectionRef.current) {
       return;
     }
 
     try {
+      // SEC-H1: 서버에서 단기 TURN 자격증명 조회, 실패 시 STUN only fallback
+      let iceConfig = STUN_ONLY;
+      try {
+        const credentials = await getTurnCredentials();
+        iceConfig = { iceServers: credentials.iceServers };
+      } catch {
+        if (__DEV__) console.warn("TURN credentials fetch failed, using STUN only");
+      }
+
       // H-8: (pc as any) 대신 타입 단언 1회로 통일
-      const pc = new RTCPeerConnection(iceServers) as RTCPeerConnectionWithEvents;
+      const pc = new RTCPeerConnection(iceConfig) as RTCPeerConnectionWithEvents;
       peerConnectionRef.current = pc;
 
       // 원격 스트림 수신 처리
       pc.ontrack = (event) => {
-        console.log("Received remote track:", event);
         if (event.streams && event.streams[0]) {
           setState((prev) => ({ ...prev, remoteStream: event.streams[0] }));
         }
@@ -136,7 +131,6 @@ export function useWebRTC({
       // ICE 연결 상태 변경
       pc.oniceconnectionstatechange = () => {
         const connectionState = pc.iceConnectionState;
-        console.log("ICE connection state:", connectionState);
 
         if (connectionState === "connected" || connectionState === "completed") {
           setState((prev) => ({ ...prev, isConnected: true }));
@@ -152,7 +146,6 @@ export function useWebRTC({
       // ICE Candidate 생성 시 전송
       pc.onicecandidate = (event) => {
         if (event.candidate && socketRef.current) {
-          console.log("Sending ICE candidate:", event.candidate);
           socketRef.current.emit("webrtc:ice", {
             candidate: event.candidate.toJSON(),
             to: remoteUserId || webrtcChannelId,
@@ -161,19 +154,12 @@ export function useWebRTC({
         }
       };
 
-      // ICE 수집 상태 변경
-      pc.onicegatheringstatechange = () => {
-        console.log("ICE gathering state:", pc.iceGatheringState);
-      };
-
-      // 시그널링 상태 변경
-      pc.onsignalingstatechange = () => {
-        console.log("Signaling state:", pc.signalingState);
-      };
+      pc.onicegatheringstatechange = null;
+      pc.onsignalingstatechange = null;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "PeerConnection 초기화 실패";
-      console.error("initializePeerConnection error:", error);
+      if (__DEV__) console.error("initializePeerConnection error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
     }
   }, [sessionId, webrtcChannelId, remoteUserId]);
@@ -190,7 +176,6 @@ export function useWebRTC({
       await peerConnectionRef.current.setLocalDescription(offer);
 
       if (socketRef.current) {
-        console.log("Sending offer:", offer);
         socketRef.current.emit("webrtc:offer", {
           sdp: offer.toJSON(),
           to: remoteUserId || webrtcChannelId,
@@ -200,7 +185,7 @@ export function useWebRTC({
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Offer 생성 실패";
-      console.error("createOffer error:", error);
+      if (__DEV__) console.error("createOffer error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
       throw error;
     }
@@ -223,7 +208,6 @@ export function useWebRTC({
         await peerConnectionRef.current.setLocalDescription(answer);
 
         if (socketRef.current) {
-          console.log("Sending answer:", answer);
           socketRef.current.emit("webrtc:answer", {
             sdp: answer.toJSON(),
             to: remoteUserId || webrtcChannelId,
@@ -233,7 +217,7 @@ export function useWebRTC({
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Answer 생성 실패";
-        console.error("createAnswer error:", error);
+        if (__DEV__) console.error("createAnswer error:", error);
         setState((prev) => ({ ...prev, error: errorMessage }));
         throw error;
       }
@@ -260,19 +244,18 @@ export function useWebRTC({
       // 통화 채널 룸 진입 (시그널링 라우팅을 위해 join 먼저)
       socket.emit("webrtc:join", { channelId: webrtcChannelId, sessionId });
 
-      // PeerConnection 초기화
-      initializePeerConnection();
+      // PeerConnection 초기화 (await: TURN 자격증명 조회 포함)
+      await initializePeerConnection();
 
       // 로컬 스트림 초기화
       await initializeLocalStream();
 
       // Socket 이벤트 리스너 등록
       socket.on("webrtc:offer", async (data: { sdp: RTCSessionDescriptionInit; from?: string }) => {
-        console.log("Received offer:", data);
         try {
           await createAnswer(data.sdp);
         } catch (error) {
-          console.error("Error handling offer:", error);
+          if (__DEV__) console.error("Error handling offer:", error);
           setState((prev) => ({
             ...prev,
             error: error instanceof Error ? error.message : "Offer 처리 실패",
@@ -281,14 +264,13 @@ export function useWebRTC({
       });
 
       socket.on("webrtc:answer", async (data: { sdp: RTCSessionDescriptionInit; from?: string }) => {
-        console.log("Received answer:", data);
         if (peerConnectionRef.current) {
           try {
             await peerConnectionRef.current.setRemoteDescription(
               new RTCSessionDescription(data.sdp)
             );
           } catch (error) {
-            console.error("Error setting remote description:", error);
+            if (__DEV__) console.error("Error setting remote description:", error);
             setState((prev) => ({
               ...prev,
               error: error instanceof Error ? error.message : "Answer 처리 실패",
@@ -298,13 +280,12 @@ export function useWebRTC({
       });
 
       socket.on("webrtc:ice", async (data: { candidate: RTCIceCandidateInit; from?: string }) => {
-        console.log("Received ICE candidate:", data);
         if (peerConnectionRef.current && data.candidate && data.candidate.candidate) {
           try {
             const candidate = new (RTCIceCandidate as any)(data.candidate);
             await peerConnectionRef.current.addIceCandidate(candidate);
           } catch (error) {
-            console.error("Error adding ICE candidate:", error);
+            if (__DEV__) console.error("Error adding ICE candidate:", error);
             // ICE candidate 에러는 치명적이지 않으므로 상태 업데이트하지 않음
           }
         }
@@ -318,7 +299,7 @@ export function useWebRTC({
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "WebRTC 초기화 실패";
-      console.error("startConnection error:", error);
+      if (__DEV__) console.error("startConnection error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
       isInitializedRef.current = false;
     }
@@ -326,7 +307,6 @@ export function useWebRTC({
 
   // Cleanup: 모든 리소스 정리
   const cleanup = useCallback(() => {
-    console.log("Cleaning up WebRTC resources...");
 
     // 로컬 스트림 정리
     if (localStreamRef.current) {
