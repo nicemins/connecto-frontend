@@ -79,7 +79,8 @@ connecto-app/
 │   │   ├── socket.ts          # Socket.IO 싱글톤 (connectSocket, getSocket, disconnectSocket)
 │   │   ├── friends.ts         # getFriendList, getFriendRequests, requestFriend, acceptFriendRequest, rejectFriendRequest, requestCallToFriend
 │   │   ├── report.ts          # reportUser
-│   │   └── notifications.ts   # 푸시 알림 설정
+│   │   ├── notifications.ts   # 푸시 알림 설정
+│   │   └── webrtc.ts          # getTurnCredentials → GET /webrtc/turn-credentials (SEC-H1)
 │   ├── store/
 │   │   └── authStore.ts       # Zustand: accessToken, refreshToken, me
 │   │                          # persistTokens, loadTokens, logout (모두 async)
@@ -87,7 +88,7 @@ connecto-app/
 │   │   └── CharacterBlob.tsx     # 공통 캐릭터 blob (size, colors props) — 4개 화면에서 재사용
 │   ├── hooks/
 │   │   ├── useSocketMatching.ts  # 매칭 + polling fallback + isOfferer 판단
-│   │   ├── useWebRTC.ts          # WebRTC offer/answer/ICE + TURN 설정
+│   │   ├── useWebRTC.ts          # WebRTC offer/answer/ICE + TURN 설정 (getTurnCredentials API 호출, 실패 시 STUN only)
 │   │   └── useNotifications.ts   # Expo 푸시 알림
 │   ├── screens/
 │   │   ├── LoginScreen.tsx          # 탭 UI: 소셜(Google/Kakao/Line) + 이메일/비밀번호
@@ -275,6 +276,12 @@ Stack (RootNavigator) — initialRoute: "Login"
 | POST | `/users/me/device-token` | FCM 디바이스 토큰 등록/갱신 `{ token, platform: "android"\|"ios" }` | ✅ 2026-03-09 |
 | DELETE | `/users/me/device-token` | 토큰 삭제 (logout 시 백엔드 자동 처리) | ✅ 2026-03-09 |
 
+### 6.9 WebRTC (`/webrtc`)
+
+| 메서드 | 엔드포인트 | 설명 | BE 상태 |
+|--------|-----------|------|---------|
+| GET | `/webrtc/turn-credentials` | 단기 TURN 자격증명 조회 → `{ iceServers: RTCIceServer[], ttl: number }` (SEC-H1) | ✅ 2026-03-14 |
+
 ### 6.8 친구 / 신고
 
 | 메서드 | 엔드포인트 | 설명 | BE 상태 |
@@ -324,7 +331,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-14 (SEC-H1 완료 — TURN 자격증명 서버 API 연동)
+> **마지막 업데이트:** 2026-03-14 (SEC-H1 완료 — TURN 자격증명 서버 API 연동 / SEC-M6 Expo bare workflow 확인, SEC-C1 블로커로 보류 / .gitignore .bkit·.claude·.idea 추가)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -340,7 +347,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 토큰 영속화 | `authStore.ts` | SecureStore, `persistTokens` / `loadTokens` / `logout` |
 | 앱 시작 라우팅 | `App.tsx` | `isHydrating` → 토큰 복원 → `getMe` → 라우팅 |
 | 매칭 | `MatchingScreen.tsx`, `useSocketMatching.ts` | Socket + REST polling fallback |
-| WebRTC 통화 | `CallScreen.tsx`, `useWebRTC.ts` | `isOfferer` 서버 수신, TURN 설정, 30초 잠금, 재연결 |
+| WebRTC 통화 | `CallScreen.tsx`, `useWebRTC.ts`, `api/webrtc.ts` | `isOfferer` 서버 수신, TURN 자격증명 서버 API 조회 (SEC-H1), STUN fallback, 30초 잠금, 재연결 |
 | 통화 결과 | `MatchResultScreen.tsx` | 상대 프로필, 친구 신청, 재연결, 신고 |
 | 친구 목록 | `FriendListScreen.tsx`, `friends.ts` | 실 API, 친구 요청 수락/거절, FriendDetail 모달, 친구 통화 요청 → CallScreen 이동 |
 | 마이페이지 | `MyPageScreen.tsx` | 프로필 조회·수정, 이미지 업로드(S3), 로그아웃, 회원 탈퇴 |
