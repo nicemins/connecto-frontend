@@ -331,7 +331,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-14 (SEC-H1 완료 — TURN 자격증명 서버 API 연동 / SEC-M6 Expo bare workflow 확인, SEC-C1 블로커로 보류 / .gitignore .bkit·.claude·.idea 추가)
+> **마지막 업데이트:** 2026-03-15 (SEC-C1/C2 완료 — HTTPS 인프라 완성, .env.production 생성 / SEC-M6 블로커 해제됨 — SSL 피닝 구현 가능 상태)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -383,8 +383,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 | ID | 문제 | 파일 | 수정 방법 | 상태 |
 |----|------|------|----------|------|
-| SEC-C1 | 모든 API/Socket.IO가 HTTP (MITM 취약) | `.env`, `client.ts`, `socket.ts` | 프로덕션 URL을 HTTPS/WSS로 교체 | ⏳ 인프라 작업 필요 |
-| SEC-C2 | refreshToken 평문 Cookie 헤더 전송 (HTTP) | `src/api/auth.ts:107` | HTTPS 전환 시 동시 해결 | ⏳ SEC-C1 해결 시 자동 해결 |
+| SEC-C1 | 모든 API/Socket.IO가 HTTP (MITM 취약) | `.env.production` | 프로덕션 URL HTTPS/WSS 전환 — `api.connecto.app`, `socket.connecto.app` | ✅ 완료 (2026-03-14) |
+| SEC-C2 | refreshToken 평문 Cookie 헤더 전송 (HTTP) | `src/api/auth.ts:107` | HTTPS 전환으로 자동 해결 (Cookie가 TLS 위에서 전송) | ✅ 완료 (2026-03-14) — SEC-C1과 함께 해결 |
 
 #### High — 출시 전 수정
 
@@ -402,7 +402,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | SEC-M1 | 닉네임·bio `maxLength` 미설정 | `MyPageScreen.tsx` | ✅ 완료 (2026-03-13) — maxLength 30/500 |
 | SEC-M2 | `console.*` 프로덕션 노출 | 다수 파일 | ✅ 완료 (2026-03-13) — babel-plugin-transform-remove-console + __DEV__ 가드 |
 | SEC-M4 | 이미지 fileSize undefined 통과 / 치수 미검증 | `MyPageScreen.tsx` | ✅ 완료 (2026-03-13) — undefined 차단 + width/height 검증 |
-| SEC-M6 | Axios 인증서 피닝 없음 | `client.ts` | ⏳ SEC-C1 (HTTPS 전환) 완료 후 구현 — Bare workflow 확인됨, react-native-ssl-pinning 도입 가능하나 HTTP 환경에서 피닝 불가 (인증서 해시 미확정) |
+| SEC-M6 | Axios 인증서 피닝 없음 | `client.ts` | ⏳ 구현 가능 상태 — Bare workflow 확인, SEC-C1 블로커 해제됨. `api.connecto.app` 인증서 SPKI 해시 추출 후 `network_security_config.xml` 또는 `react-native-ssl-pinning` 도입 필요 |
 | SEC-M7 | IDOR 위험 (partnerId 로컬 폴백 사용) | `MatchResultScreen.tsx` | ✅ 완료 (2026-03-13) — 서버 반환 ID만 사용 |
 
 #### Low — 백로그
