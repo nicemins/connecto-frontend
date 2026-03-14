@@ -51,11 +51,11 @@ Connecto 앱의 보안 감사(2026-03-11, `docs/02-design/security-spec.md`) 결
 |----|--------|------|
 | SEC-C1 | Critical | HTTPS/WSS: 프로덕션 서버 SSL 인증서 설정 필요 |
 | SEC-C2 | Critical | SEC-C1 해결 시 자동 해결 |
-| SEC-H1 | High | TURN 단기 자격증명 API: 백엔드 구현 필요 |
+| SEC-H1 | High | ~~TURN 단기 자격증명 API: 백엔드 구현 필요~~ → **✅ 완료 (2026-03-14)** 백엔드 `GET /webrtc/turn-credentials` 구현 완료, 프론트 `src/api/webrtc.ts` + `useWebRTC.ts` 연동 완료, .env TURN 변수 제거 |
 | SEC-H2 | High | Google OAuth Web Client ID: GCP Console 설정 |
 | SEC-M3 | Medium | 이메일 열거: 백엔드 rate limit/CAPTCHA 필요 |
 | SEC-M5 | Medium | TOCTOU: 백엔드 unique constraint로 이미 처리됨 |
-| SEC-M6 | Medium | 인증서 피닝: 새 라이브러리 + 백엔드 인증서 해시 필요 |
+| SEC-M6 | Medium | 인증서 피닝: **Expo Bare/Prebuild workflow 확인** (`android/` 존재, `expo-dev-client` 설치됨) → `react-native-ssl-pinning` 기술적으로 도입 가능. **단, SEC-C1 (HTTPS 전환) 완료 전까지 구현 불가** — HTTP 환경에서 TLS 피닝 동작 안 함, 인증서 해시 미확정. SEC-C1 완료 후 동시 구현 예정 |
 | SEC-L1 | Low | SecureStore 생체 인증: 플랫폼 설정 |
 | SEC-L4 | Low | JWT exp 로컬 체크: 현재 서버 401로 처리 충분 |
 
@@ -155,14 +155,18 @@ Connecto 앱의 보안 감사(2026-03-11, `docs/02-design/security-spec.md`) 결
 
 ## 6. 완료 기준
 
-- [ ] SEC-H3: 로그인 5회 실패 시 30초 쿨다운 동작
-- [ ] SEC-H4: 소켓 인증 오류 시 토큰 갱신 후 자동 재연결
-- [ ] SEC-M1: MyPage 닉네임/bio maxLength 적용
-- [ ] SEC-M2: 프로덕션 빌드에서 console.* 출력 없음
-- [ ] SEC-M4: fileSize undefined 시 업로드 차단
-- [ ] SEC-M7: 친구신청/신고가 서버 반환 ID만 사용
-- [ ] SEC-L2: 폼 제출 후 비밀번호 state 초기화
-- [ ] CLAUDE.md 보안 수정 항목 상태 업데이트
+- [x] SEC-H1: TURN 자격증명 서버 API 연동 (`src/api/webrtc.ts` + `useWebRTC.ts`), 실패 시 STUN only fallback
+- [x] SEC-H3: 로그인 5회 실패 시 30초 쿨다운 동작
+- [x] SEC-H4: 소켓 인증 오류 시 토큰 갱신 후 자동 재연결
+- [x] SEC-M1: MyPage 닉네임/bio maxLength 적용
+- [x] SEC-M2: 프로덕션 빌드에서 console.* 출력 없음
+- [x] SEC-M4: fileSize undefined 시 업로드 차단
+- [x] SEC-M7: 친구신청/신고가 서버 반환 ID만 사용
+- [x] SEC-L2: 폼 제출 후 비밀번호 state 초기화
+- [x] SEC-L3: 회원 탈퇴 비밀번호 재인증 Modal
+- [x] CLAUDE.md 보안 수정 항목 상태 업데이트
+- [ ] SEC-M6: SSL 피닝 (SEC-C1 HTTPS 전환 완료 후 구현 예정)
+- [ ] SEC-C1: HTTPS/WSS 전환 (인프라 작업)
 
 ---
 
