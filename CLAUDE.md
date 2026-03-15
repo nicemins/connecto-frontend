@@ -186,7 +186,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ### 타입 규칙
 - `sessionId` 는 항상 `number` (string 사용 금지)
-- `MatchResultData` = `{ profile: { id, nickname, profileImageUrl?, bio? }, wantAgain: boolean }`
+- `MatchResultData` = `{ profile: { id, userId, nickname, profileImageUrl?, bio? }, wantAgain: boolean }` — 친구 신청 시 `profile.userId` 사용 (profile.id 아님)
 
 ---
 
@@ -258,7 +258,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 **GET /match/result/{sessionId} 응답:**
 ```typescript
-{ profile: { id: number, nickname: string, profileImageUrl?: string, bio?: string }, wantAgain: boolean }
+{ profile: { id: number, userId: number, nickname: string, profileImageUrl?: string, bio?: string }, wantAgain: boolean }
+// userId = 백엔드 User PK (친구 신청 receiverId로 사용), id = Profile PK
 ```
 
 ### 6.6 통화 (`/call`)
@@ -298,7 +299,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 ## 7. Socket.IO 이벤트 참조
 
 - **연결:** `EXPO_PUBLIC_SOCKET_URL` (기본 `http://localhost:9092`)
-- **인증:** `{ auth: { token: accessToken }, query: { token: accessToken } }`
+- **인증:** `extraHeaders: { Authorization: Bearer <token> }` + `query: { token }` (netty-socketio 2.0.3은 auth 객체 미지원)
 - **transport:** `["websocket", "polling"]`, 재연결 최대 5회
 
 | 방향 | 이벤트 | 페이로드 | BE 상태 |
@@ -331,7 +332,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-15 (SEC-C1/C2 완료 — HTTPS 인프라 완성, .env.production 생성 / SEC-M6 블로커 해제됨 — SSL 피닝 구현 가능 상태)
+> **마지막 업데이트:** 2026-03-15 (버그 수정 다수 — Socket auth, WebRTC toJSON, Axios interceptor, 친구 신청 403, Babel 캐싱, 앱 아이콘)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -358,6 +359,14 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 상대방 프로필 보기 | `MatchResultScreen.tsx` | MatchResultScreen 친구 연결 완료 시 "프로필 보기" 버튼 → Modal 표시 (partner-profile, 100% 설계 일치) |
 | 보안 수정 (프론트) | `LoginScreen.tsx`, `SignUpScreen.tsx`, `socket.ts`, `MyPageScreen.tsx`, `MatchResultScreen.tsx`, `useWebRTC.ts`, `babel.config.js` | SEC-H3 rate limiting, SEC-H4 소켓 auth 복구, SEC-M1 maxLength, SEC-M2 프로덕션 console 제거, SEC-M4 이미지 검증 강화, SEC-M7 IDOR 방지, SEC-L2 비밀번호 초기화, SEC-L3 탈퇴 재인증 Modal |
 | TURN 자격증명 보안 (SEC-H1) | `src/api/webrtc.ts`, `src/hooks/useWebRTC.ts` | GET /webrtc/turn-credentials API 연동, 실패 시 STUN only fallback |
+| Socket.IO 인증 방식 수정 | `src/api/socket.ts` | netty-socketio 2.0.3 auth 객체 미지원 확인 → extraHeaders + query 방식으로 전환 |
+| WebRTC offer/answer 직렬화 수정 | `src/hooks/useWebRTC.ts` | react-native-webrtc v124에서 toJSON() 없음 → `{ type, sdp }` 직접 구성 |
+| Axios 401 interceptor 수정 | `src/api/client.ts` | setAccessToken → persistTokens로 변경 (SecureStore 영속화) |
+| WebRTC 초기화 실패 시 세션 정리 | `src/hooks/useWebRTC.ts` | startConnection catch에서 endCall(sessionId) 호출 → stale session 방지 |
+| 친구 신청 403 수정 | `src/api/match.ts`, `src/screens/MatchResultScreen.tsx` | profile.id(프로필 PK) → profile.userId(유저 PK)로 receiverId 수정 |
+| 앱 아이콘 교체 | `assets/icon.png`, `assets/adaptive-icon.png`, `assets/splash-icon.png`, `app.json` | Gemini 생성 이미지 적용, adaptive backgroundColor #8B5CF6 |
+| Babel 캐싱 충돌 수정 | `babel.config.js` | api.cache(true) + api.env() 충돌 → api.cache(true) 제거 |
+| .env.production | `.env.production` | HTTPS 프로덕션 URL 분리 (api.connecto.app, socket.connecto.app) |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 
@@ -374,6 +383,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 기능 | 파일 | 상태 |
 |------|------|------|
 | Kakao·Line 로그인 | `LoginScreen.tsx` | ⏳ 백엔드 미지원 (Google만 지원), "준비 중" Alert 유지 |
+| 두 에뮬레이터 동시 매칭 테스트 | AVD 환경 | ⏳ AVD 복사본 이미지 충돌 문제 — Android Studio에서 새 AVD 직접 생성 필요 |
 
 ### 보안 수정 현황 🔒 (감사: 2026-03-11 / 프론트 수정: 2026-03-13)
 
@@ -412,8 +422,11 @@ Stack (RootNavigator) — initialRoute: "Login"
 | SEC-L2 | 폼 제출 후 비밀번호 state 미삭제 | ✅ 완료 (2026-03-13) — finally 블록에서 setPassword('') |
 | SEC-L3 | 회원 탈퇴 재인증 없음 | ✅ 완료 (2026-03-13) — 비밀번호 재인증 Modal |
 
-### 백엔드 미구현 — 프론트 대응 현황 ⏳
+### 백엔드 요청 사항 🔧 (프론트 대기 중)
 
-| 백엔드 항목 | 프론트 대응 |
-|-----------|------------|
-| `friend:status-change` 소켓 | `socket.on` 리스너 등록 완료, 백엔드 emit 구현 후 즉시 동작 |
+| 항목 | 위치 | 내용 |
+|------|------|------|
+| `POST /call/again` FCM 알림 미발송 | `CallService.expressCallAgain()` | wantAgain=true 시 상대방에게 FCM 알림 전송 로직 추가 필요 |
+| ALREADY_IN_CALL stale session 기준 | `MatchService.startMatching()` | 10분 → 5분으로 줄이기 (WebRTC 실패 직후 재시도 가능하도록) |
+| `GET /webrtc/turn-credentials` 미구현 | 백엔드 WebRTC 컨트롤러 | 프론트는 STUN fallback 처리 완료, 프로덕션 전 구현 필요 |
+| `friend:status-change` 소켓 | Socket.IO 서버 | 프론트 리스너 등록 완료, 백엔드 emit 구현 후 즉시 동작 |

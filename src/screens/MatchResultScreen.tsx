@@ -66,8 +66,8 @@ export default function MatchResultScreen() {
   }, [sessionId]);
 
   const resolvedPartnerId = String(partnerProfile?.profile?.id ?? "");
-  // SEC-M7: IDOR 방지 — 서버 반환 ID만 사용 (route params의 partnerId 폴백 제거)
-  const resolvedPartnerNumericId = partnerProfile?.profile?.id ?? null;
+  // SEC-M7: IDOR 방지 — 서버 반환 userId만 사용 (profile.id가 아닌 userId)
+  const resolvedPartnerNumericId = partnerProfile?.profile?.userId ?? null;
 
   const handleFriendRequest = React.useCallback(async () => {
     if (!resolvedPartnerNumericId) {

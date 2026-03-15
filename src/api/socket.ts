@@ -18,18 +18,25 @@ export function getSocket(): Socket | null {
 
   if (!socketInstance || !socketInstance.connected) {
     socketInstance = io(SOCKET_URL, {
-      auth: { token },
+      // netty-socketio 2.0.3: auth 객체 미지원 → extraHeaders + query 사용
+      query: { token },
+      extraHeaders: {
+        Authorization: `Bearer ${token}`,
+      },
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
     });
 
-    // 재연결 시 최신 accessToken으로 auth 갱신
+    // 재연결 시 최신 accessToken으로 extraHeaders + query 갱신
     socketInstance.on("reconnect_attempt", () => {
       const latestToken = useAuthStore.getState().accessToken;
       if (socketInstance && latestToken) {
-        socketInstance.auth = { token: latestToken };
+        (socketInstance.io.opts as any).query = { token: latestToken };
+        (socketInstance.io.opts as any).extraHeaders = {
+          Authorization: `Bearer ${latestToken}`,
+        };
       }
     });
 
@@ -53,7 +60,10 @@ export function getSocket(): Socket | null {
           await persistTokens(newToken);
 
           if (socketInstance) {
-            socketInstance.auth = { token: newToken };
+            (socketInstance.io.opts as any).query = { token: newToken };
+            (socketInstance.io.opts as any).extraHeaders = {
+              Authorization: `Bearer ${newToken}`,
+            };
             socketInstance.disconnect().connect();
           }
         } catch {

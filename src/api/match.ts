@@ -3,6 +3,7 @@ import { apiClient } from "./client";
 export type MatchResultData = {
   profile: {
     id: number;
+    userId: number;
     nickname: string;
     profileImageUrl?: string;
     bio?: string;

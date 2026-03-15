@@ -8,6 +8,7 @@ import {
 } from "react-native-webrtc";
 import { getSocket } from "../api/socket";
 import { getTurnCredentials } from "../api/webrtc";
+import { endCall } from "../api/call";
 import type { Socket } from "socket.io-client";
 
 // WebRTC 시그널링 타입 정의
@@ -177,7 +178,7 @@ export function useWebRTC({
 
       if (socketRef.current) {
         socketRef.current.emit("webrtc:offer", {
-          sdp: offer.toJSON(),
+          sdp: { type: offer.type, sdp: offer.sdp },
           to: remoteUserId || webrtcChannelId,
           sessionId,
         });
@@ -209,7 +210,7 @@ export function useWebRTC({
 
         if (socketRef.current) {
           socketRef.current.emit("webrtc:answer", {
-            sdp: answer.toJSON(),
+            sdp: { type: answer.type, sdp: answer.sdp },
             to: remoteUserId || webrtcChannelId,
             sessionId,
           });
@@ -302,8 +303,10 @@ export function useWebRTC({
       if (__DEV__) console.error("startConnection error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
       isInitializedRef.current = false;
+      // 서버 call 세션 정리 — 미호출 시 ALREADY_IN_CALL 잔존
+      try { await endCall(sessionId); } catch { /* 세션 없으면 무시 */ }
     }
-  }, [initializePeerConnection, initializeLocalStream, createOffer]);
+  }, [initializePeerConnection, initializeLocalStream, createOffer, sessionId]);
 
   // Cleanup: 모든 리소스 정리
   const cleanup = useCallback(() => {

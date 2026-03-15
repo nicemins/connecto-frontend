@@ -79,7 +79,7 @@ apiClient.interceptors.response.use(
       try {
         const { refreshAccessToken } = await import("./auth");
         const newAccessToken = await refreshAccessToken(refreshToken);
-        useAuthStore.getState().setAccessToken(newAccessToken);
+        await useAuthStore.getState().persistTokens(newAccessToken);
         processQueue(null, newAccessToken);
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return apiClient(originalRequest);
