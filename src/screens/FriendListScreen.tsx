@@ -43,6 +43,7 @@ export default function FriendListScreen() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [processingRequestId, setProcessingRequestId] = React.useState<number | null>(null);
   const [selectedFriend, setSelectedFriend] = React.useState<Friend | null>(null);
+  const [onlineStatusMap, setOnlineStatusMap] = React.useState<Record<number, boolean>>({});
   const socketRef = React.useRef<Socket | null>(null);
 
   // 친구 목록 + 친구 요청 로드
@@ -75,7 +76,8 @@ export default function FriendListScreen() {
     socketRef.current = socket;
 
     const handleStatusChange = (data: { friendId: number; isOnline: boolean }) => {
-      console.log("Friend status changed:", data);
+      if (__DEV__) console.log("[FriendList] friend:status-change", data);
+      setOnlineStatusMap((prev) => ({ ...prev, [data.friendId]: data.isOnline }));
     };
 
     socket.on("friend:status-change", handleStatusChange);
@@ -146,7 +148,9 @@ export default function FriendListScreen() {
   }, []);
 
   // 친구 항목 렌더링
-  const renderFriendItem: ListRenderItem<Friend> = ({ item: friend }) => (
+  const renderFriendItem: ListRenderItem<Friend> = ({ item: friend }) => {
+    const isOnline = onlineStatusMap[friend.userId] ?? false;
+    return (
     <View className="mb-4 mx-4 p-4 rounded-2xl bg-white/10 border border-white/20">
       <View className="flex-row items-center">
         <Pressable onPress={() => handleFriendProfilePress(friend)} className="relative">
@@ -162,6 +166,10 @@ export default function FriendListScreen() {
                 {(friend.nickname ?? "?").charAt(0).toUpperCase()}
               </Text>
             </View>
+          )}
+          {/* 온라인 상태 표시 */}
+          {isOnline && (
+            <View style={styles.onlineDot} />
           )}
         </Pressable>
 
@@ -188,6 +196,7 @@ export default function FriendListScreen() {
       </View>
     </View>
   );
+  };
 
   // 친구 요청 항목 렌더링
   const renderRequestItem = (request: PendingFriendRequest) => {
@@ -416,6 +425,17 @@ const styles = StyleSheet.create({
   profileImagePlaceholder: {
     alignItems: "center",
     justifyContent: "center",
+  },
+  onlineDot: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#10B981",
+    borderWidth: 2,
+    borderColor: "rgba(16, 16, 30, 0.8)",
   },
   profileImageInitial: {
     fontSize: 22,

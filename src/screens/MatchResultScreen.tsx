@@ -20,6 +20,7 @@ import { requestFriend } from "../api/friends";
 import { reportUser } from "../api/report";
 import { callAgain } from "../api/call";
 import { getMatchResult, type MatchResultData } from "../api/match";
+import { getSocket } from "../api/socket";
 import CharacterBlob from "../components/CharacterBlob";
 
 type MatchResultScreenNavigationProp = NativeStackNavigationProp<
@@ -53,17 +54,48 @@ export default function MatchResultScreen() {
   >("none");
   const [isRequesting, setIsRequesting] = React.useState(false);
   const [isCallingAgain, setIsCallingAgain] = React.useState(false);
+  const [isWaitingRematch, setIsWaitingRematch] = React.useState(false);
   const [isReporting, setIsReporting] = React.useState(false);
   const [showProfileModal, setShowProfileModal] = React.useState(false);
+  const [profileLoadFailed, setProfileLoadFailed] = React.useState(false);
 
-  React.useEffect(() => {
+  const loadPartnerProfile = React.useCallback(() => {
+    setProfileLoadFailed(false);
     getMatchResult(sessionId)
       .then((result) => setPartnerProfile(result))
       .catch(() => {
-        // H-7: 실패 시 Alert로 사용자에게 알림
-        Alert.alert("알림", "상대방 정보를 불러오지 못했습니다.");
+        setProfileLoadFailed(true);
+        Alert.alert(
+          "알림",
+          "상대방 정보를 불러오지 못했습니다.",
+          [{ text: "다시 시도", onPress: loadPartnerProfile }, { text: "닫기" }]
+        );
       });
   }, [sessionId]);
+
+  React.useEffect(() => {
+    loadPartnerProfile();
+  }, [loadPartnerProfile]);
+
+  // call:rematch 소켓 수신 — 양측 모두 "다시 통화" 시 새 CallScreen으로 이동
+  React.useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleRematch = (data: { sessionId: number; webrtcChannelId: string; isOfferer: boolean }) => {
+      if (__DEV__) console.log("[MatchResult] call:rematch received", data);
+      navigation.replace("Call", {
+        sessionId: data.sessionId,
+        webrtcChannelId: data.webrtcChannelId,
+        isOfferer: data.isOfferer,
+      });
+    };
+
+    socket.on("call:rematch", handleRematch);
+    return () => {
+      socket.off("call:rematch", handleRematch);
+    };
+  }, [navigation]);
 
   const resolvedPartnerId = String(partnerProfile?.profile?.id ?? "");
   // SEC-M7: IDOR 방지 — 서버 반환 userId만 사용 (profile.id가 아닌 userId)
@@ -84,47 +116,46 @@ export default function MatchResultScreen() {
       const result = await requestFriend(resolvedPartnerNumericId);
       if (result.status === "ACCEPTED") {
         setFriendRequestStatus("mutual");
-        Alert.alert(
-          "친구 연결 완료!",
-          "친구로 연결되었습니다!",
-          [{ text: "확인" }]
-        );
+        Alert.alert("친구 연결 완료!", "친구로 연결되었습니다!", [{ text: "확인" }]);
       } else {
         setFriendRequestStatus("requested");
       }
-    } catch (e) {
-      if (__DEV__) console.error("Friend request error:", e);
-      Alert.alert("오류", "친구 신청 중 오류가 발생했습니다.");
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const code = e?.response?.data?.code;
+
+      if (status === 409) {
+        if (code === "DUPLICATE_FRIEND_REQUEST") {
+          setFriendRequestStatus("requested");
+          Alert.alert("알림", "이미 친구 신청을 보낸 상태입니다.\n상대방이 수락하면 친구로 연결됩니다.");
+        } else {
+          setFriendRequestStatus("mutual");
+          Alert.alert("알림", "이미 친구 관계입니다.");
+        }
+      } else {
+        if (__DEV__) console.error("Friend request error:", e);
+        Alert.alert("오류", "친구 신청 중 오류가 발생했습니다.");
+      }
     } finally {
       setIsRequesting(false);
     }
   }, [resolvedPartnerNumericId, friendRequestStatus]);
 
   const handleCallAgain = React.useCallback(async () => {
-    if (isCallingAgain) return;
+    if (isCallingAgain || isWaitingRematch) return;
 
     setIsCallingAgain(true);
     try {
       await callAgain(sessionId, true);
-      Alert.alert(
-        "재연결 요청",
-        "상대방에게 재연결 요청을 보냈습니다. 상대방이 수락하면 통화가 시작됩니다.",
-        [
-          {
-            text: "확인",
-            onPress: () => {
-              navigation.replace("MainTabs");
-            },
-          },
-        ]
-      );
+      // 대기 상태 전환 — call:rematch 소켓 수신 시 CallScreen으로 이동
+      setIsWaitingRematch(true);
     } catch (e) {
       if (__DEV__) console.error("Call again error:", e);
       Alert.alert("오류", "재연결 요청 중 오류가 발생했습니다.");
     } finally {
       setIsCallingAgain(false);
     }
-  }, [sessionId, navigation]);
+  }, [sessionId, isCallingAgain, isWaitingRematch]);
 
   const handleReport = React.useCallback(() => {
     if (!resolvedPartnerNumericId) {
@@ -252,15 +283,17 @@ export default function MatchResultScreen() {
             ) : (
               <Pressable
                 onPress={handleFriendRequest}
-                disabled={isRequesting || friendRequestStatus === "requested"}
+                disabled={isRequesting || friendRequestStatus === "requested" || profileLoadFailed || !resolvedPartnerNumericId}
                 className={`h-14 w-full items-center justify-center rounded-2xl ${
-                  friendRequestStatus === "requested"
+                  friendRequestStatus === "requested" || profileLoadFailed
                     ? "bg-gray-500/50"
                     : "bg-purple-500"
                 } disabled:opacity-60`}
               >
                 <Text className="text-lg font-semibold text-white">
-                  {friendRequestStatus === "requested"
+                  {profileLoadFailed
+                    ? "정보 없음"
+                    : friendRequestStatus === "requested"
                     ? "신청 완료"
                     : isRequesting
                     ? "신청 중..."
@@ -272,15 +305,32 @@ export default function MatchResultScreen() {
 
           {/* 재연결 버튼 */}
           <View className="mb-6 px-6">
-            <Pressable
-              onPress={handleCallAgain}
-              disabled={isCallingAgain}
-              className="h-14 w-full items-center justify-center rounded-2xl bg-blue-500 disabled:opacity-60"
-            >
-              <Text className="text-lg font-semibold text-white">
-                {isCallingAgain ? "요청 중..." : "이 사람과 다시 통화하기"}
-              </Text>
-            </Pressable>
+            {isWaitingRematch ? (
+              <View className="rounded-2xl bg-blue-500/40 border border-blue-400/50 px-4 py-3">
+                <Text className="text-base font-semibold text-white/80 text-center">
+                  상대방 수락 대기 중...
+                </Text>
+                <Text className="text-xs text-white/50 mt-0.5 text-center">
+                  상대방도 수락하면 통화가 시작됩니다
+                </Text>
+                <Pressable
+                  onPress={() => setIsWaitingRematch(false)}
+                  className="mt-3 h-8 items-center justify-center rounded-xl bg-white/10 border border-white/20"
+                >
+                  <Text className="text-xs text-white/60">취소</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                onPress={handleCallAgain}
+                disabled={isCallingAgain}
+                className="h-14 w-full items-center justify-center rounded-2xl bg-blue-500 disabled:opacity-60"
+              >
+                <Text className="text-lg font-semibold text-white">
+                  {isCallingAgain ? "요청 중..." : "이 사람과 다시 통화하기"}
+                </Text>
+              </Pressable>
+            )}
           </View>
 
           {/* 홈으로 가기 버튼 */}

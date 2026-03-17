@@ -17,6 +17,13 @@ export function getSocket(): Socket | null {
   if (!token) return null;
 
   if (!socketInstance || !socketInstance.connected) {
+    // 이전 소켓이 연결 해제 중인 경우 완전히 정리
+    if (socketInstance && !socketInstance.connected) {
+      socketInstance.removeAllListeners();
+      socketInstance.disconnect();
+      socketInstance = null;
+    }
+
     socketInstance = io(SOCKET_URL, {
       // netty-socketio 2.0.3: auth 객체 미지원 → extraHeaders + query 사용
       query: { token },

@@ -3,6 +3,8 @@ import { View, ActivityIndicator } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import RootNavigator from "./src/navigation/RootNavigator";
 import { useNotifications } from "./src/hooks/useNotifications";
+import { useIncomingCall } from "./src/hooks/useIncomingCall";
+import IncomingCallModal from "./src/components/IncomingCallModal";
 import { useAuthStore } from "./src/store/authStore";
 import { getMe } from "./src/api/auth";
 import { navigationRef } from "./src/navigation/navigationRef";
@@ -10,6 +12,7 @@ import { CommonActions } from "@react-navigation/native";
 
 export default function App() {
   useNotifications();
+  const { incomingCall, dismiss } = useIncomingCall();
   const { loadTokens, setMe, persistTokens, logout } = useAuthStore();
   const [isHydrating, setIsHydrating] = React.useState(true);
 
@@ -51,6 +54,7 @@ export default function App() {
     <>
       <StatusBar style="dark" />
       <RootNavigator />
+      <IncomingCallModal incomingCall={incomingCall} onDismiss={dismiss} />
     </>
   );
 }

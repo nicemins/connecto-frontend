@@ -66,6 +66,7 @@ export function useWebRTC({
   const localStreamRef = useRef<MediaStream | null>(null);
   const isOffererRef = useRef<boolean>(false);
   const isInitializedRef = useRef<boolean>(false);
+  const wasConnectedRef = useRef<boolean>(false); // ICE 한 번이라도 연결된 적 있는지
 
   // STUN only fallback (API 실패 시)
   const STUN_ONLY = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
@@ -134,6 +135,7 @@ export function useWebRTC({
         const connectionState = pc.iceConnectionState;
 
         if (connectionState === "connected" || connectionState === "completed") {
+          wasConnectedRef.current = true;
           setState((prev) => ({ ...prev, isConnected: true }));
         } else if (
           connectionState === "disconnected" ||
@@ -141,6 +143,12 @@ export function useWebRTC({
           connectionState === "closed"
         ) {
           setState((prev) => ({ ...prev, isConnected: false }));
+          // 한 번이라도 연결된 적 있을 때만 onCallEnd 호출
+          // (에뮬레이터처럼 ICE가 처음부터 연결 안 된 경우 자동 종료 방지)
+          if ((connectionState === "failed" || connectionState === "closed") && wasConnectedRef.current) {
+            if (__DEV__) console.log(`[WebRTC] ICE ${connectionState} (was connected) → triggering onCallEnd`);
+            onCallEnd?.();
+          }
         }
       };
 
@@ -148,8 +156,8 @@ export function useWebRTC({
       pc.onicecandidate = (event) => {
         if (event.candidate && socketRef.current) {
           socketRef.current.emit("webrtc:ice", {
+            channelId: webrtcChannelId,
             candidate: event.candidate.toJSON(),
-            to: remoteUserId || webrtcChannelId,
             sessionId,
           });
         }
@@ -178,8 +186,8 @@ export function useWebRTC({
 
       if (socketRef.current) {
         socketRef.current.emit("webrtc:offer", {
+          channelId: webrtcChannelId,
           sdp: { type: offer.type, sdp: offer.sdp },
-          to: remoteUserId || webrtcChannelId,
           sessionId,
         });
       }
@@ -210,8 +218,8 @@ export function useWebRTC({
 
         if (socketRef.current) {
           socketRef.current.emit("webrtc:answer", {
+            channelId: webrtcChannelId,
             sdp: { type: answer.type, sdp: answer.sdp },
-            to: remoteUserId || webrtcChannelId,
             sessionId,
           });
         }
@@ -293,9 +301,17 @@ export function useWebRTC({
       });
 
       // 서버가 지정한 isOfferer만 Offer 생성
+      if (__DEV__) console.log(`[WebRTC] startConnection isOfferer=${isOfferer} channelId=${webrtcChannelId}`);
       if (isOfferer) {
         isOffererRef.current = true;
+        // answerer는 polling(최대 2초)으로 늦게 합류 → 3초 대기 후 offer 생성
+        if (__DEV__) console.log("[WebRTC] Waiting 3s for answerer to join room...");
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (__DEV__) console.log("[WebRTC] Creating offer...");
         await createOffer();
+        if (__DEV__) console.log("[WebRTC] Offer created and sent");
+      } else {
+        if (__DEV__) console.log("[WebRTC] Waiting for offer from remote peer...");
       }
     } catch (error) {
       const errorMessage =
@@ -342,6 +358,7 @@ export function useWebRTC({
 
     isInitializedRef.current = false;
     isOffererRef.current = false;
+    wasConnectedRef.current = false;
   }, []);
 
   // 컴포넌트 마운트 시 연결 시작

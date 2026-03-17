@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { navigationRef } from "../navigation/navigationRef";
 import { registerDeviceToken } from "../api/notifications";
+import { getMatchStatus } from "../api/match";
 
 let Notifications: typeof import("expo-notifications") | null = null;
 let Device: typeof import("expo-device") | null = null;
@@ -42,11 +43,47 @@ export function useNotifications() {
         }),
       });
 
-      // N-5: 알림 탭 핸들러 — FriendList 화면으로 이동
-      responseSub = Notifications.addNotificationResponseReceivedListener(() => {
-        if (navigationRef.isReady()) {
+      // N-5: 알림 탭 핸들러 — 알림 종류에 따라 화면 라우팅
+      responseSub = Notifications.addNotificationResponseReceivedListener(async (response) => {
+        if (!navigationRef.isReady()) return;
+        const data = response.notification.request.content.data as Record<string, unknown>;
+
+        // "통화 요청" FCM (call:incoming) → IN_PROGRESS 세션 조회 후 CallScreen 진입
+        if (data?.type === "call_incoming") {
+          try {
+            const status = await getMatchStatus();
+            if (status.status === "IN_PROGRESS" && status.sessionId && status.webrtcChannelId) {
+              (navigationRef as any).current?.navigate("Call", {
+                sessionId: status.sessionId,
+                webrtcChannelId: status.webrtcChannelId,
+                isOfferer: false,
+              });
+              return;
+            }
+          } catch {
+            // 세션 조회 실패 시 FriendList로 fallback
+          }
           navigationRef.navigate("MainTabs", { screen: "FriendList" } as never);
+          return;
         }
+
+        // "다시 통화 요청" FCM → CallScreen으로 딥링크 (FCM data payload는 모두 string)
+        if (data?.type === "call_rematch" && typeof data?.sessionId === "string") {
+          const sessionId = parseInt(data.sessionId as string, 10);
+          const webrtcChannelId = data.webrtcChannelId as string;
+          const isOfferer = (data.isOfferer as string) === "true";
+          if (!isNaN(sessionId) && webrtcChannelId) {
+            (navigationRef as any).current?.navigate("Call", {
+              sessionId,
+              webrtcChannelId,
+              isOfferer,
+            });
+            return;
+          }
+        }
+
+        // 기본: FriendList로 이동
+        navigationRef.navigate("MainTabs", { screen: "FriendList" } as never);
       });
 
       // N-2 + N-3: FCM 디바이스 토큰 획득 (채널 설정 포함)

@@ -55,6 +55,12 @@ apiClient.interceptors.response.use(
       return Promise.reject(err);
     }
 
+    // 인증 엔드포인트(로그인/회원가입)의 401은 잘못된 자격증명 → 인터셉터 건너뜀
+    const authEndpoints = ["/auth/login", "/auth/signup", "/auth/social-login"];
+    if (authEndpoints.some((ep) => originalRequest?.url?.includes(ep))) {
+      return Promise.reject(err);
+    }
+
     if (err.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 

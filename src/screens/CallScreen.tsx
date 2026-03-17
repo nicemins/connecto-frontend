@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { endCall } from "../api/call";
 import { getMatchResult } from "../api/match";
+import { getSocket } from "../api/socket";
 import { useWebRTC } from "../hooks/useWebRTC";
 import CharacterBlob from "../components/CharacterBlob";
 
@@ -49,6 +50,7 @@ export default function CallScreen() {
   const isEndingRef = React.useRef(false);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const isMountedRef = React.useRef(true);
+  const handleEndCallRef = React.useRef<(reason?: string) => void>(() => {});
 
   React.useEffect(() => {
     return () => {
@@ -61,6 +63,7 @@ export default function CallScreen() {
     sessionId,
     webrtcChannelId,
     isOfferer,
+    onCallEnd: () => handleEndCallRef.current("remote_ended"),
   });
 
   const formatTime = (seconds: number) => {
@@ -98,7 +101,19 @@ export default function CallScreen() {
 
       try {
         await endCall(sessionId, reason);
-        // H-1: navigate는 try 블록 안에서만 실행
+      } catch (e: any) {
+        // 403 ACCESS_DENIED = 상대방이 먼저 종료 → 세션은 ENDED, 정상 진행
+        const status = e?.response?.status ?? e?.status;
+        if (status !== 403) {
+          console.error("endCall error:", e);
+          Alert.alert("오류", "통화 종료 중 오류가 발생했습니다.");
+          isEndingRef.current = false;
+          setIsEnding(false);
+          return;
+        }
+      }
+      // endCall 성공(200) or 상대방 먼저 종료(403) 모두 MatchResult로 이동
+      try {
         const totalTime = getTotalTimeFormatted();
         const matchResult = await getMatchResult(sessionId).catch(() => null);
         navigation.replace("MatchResult", {
@@ -107,14 +122,36 @@ export default function CallScreen() {
           totalTime,
         });
       } catch (e) {
-        console.error("endCall error:", e);
-        Alert.alert("오류", "통화 종료 중 오류가 발생했습니다.");
+        console.error("navigate to MatchResult error:", e);
         isEndingRef.current = false;
         setIsEnding(false);
       }
     },
     [sessionId, navigation, getTotalTimeFormatted]
   );
+
+  // handleEndCallRef 최신 함수로 유지
+  React.useEffect(() => {
+    handleEndCallRef.current = handleEndCall;
+  }, [handleEndCall]);
+
+  // call:ended 소켓 수신 — 상대방이 먼저 종료 시 자동 이동
+  React.useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleRemoteEnded = (data: { sessionId: number }) => {
+      if (data.sessionId === sessionId) {
+        if (__DEV__) console.log("[CallScreen] call:ended received, ending call");
+        handleEndCallRef.current("remote_ended");
+      }
+    };
+
+    socket.on("call:ended", handleRemoteEnded);
+    return () => {
+      socket.off("call:ended", handleRemoteEnded);
+    };
+  }, [sessionId]);
 
   // 타이머가 00:00이 되었을 때 자동으로 종료 처리
   React.useEffect(() => {
@@ -181,7 +218,8 @@ export default function CallScreen() {
                 </Text>
                 <Pressable
                   onPress={() => { cleanup(); startConnection(); }}
-                  className="mt-2 px-4 py-1 rounded-full border border-white/40"
+                  disabled={isEnding}
+                  className="mt-2 px-4 py-1 rounded-full border border-white/40 disabled:opacity-40"
                 >
                   <Text className="text-xs text-white/80">재연결</Text>
                 </Pressable>

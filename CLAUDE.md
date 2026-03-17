@@ -85,11 +85,13 @@ connecto-app/
 │   │   └── authStore.ts       # Zustand: accessToken, refreshToken, me
 │   │                          # persistTokens, loadTokens, logout (모두 async)
 │   ├── components/
-│   │   └── CharacterBlob.tsx     # 공통 캐릭터 blob (size, colors props) — 4개 화면에서 재사용
+│   │   ├── CharacterBlob.tsx     # 공통 캐릭터 blob (size, colors props) — 4개 화면에서 재사용
+│   │   └── IncomingCallModal.tsx # 친구 통화 요청 수락/거절 전역 팝업 (App.tsx에서 렌더링)
 │   ├── hooks/
 │   │   ├── useSocketMatching.ts  # 매칭 + polling fallback + isOfferer 판단
-│   │   ├── useWebRTC.ts          # WebRTC offer/answer/ICE + TURN 설정 (getTurnCredentials API 호출, 실패 시 STUN only)
-│   │   └── useNotifications.ts   # Expo 푸시 알림
+│   │   ├── useWebRTC.ts          # WebRTC offer/answer/ICE + TURN 설정 (wasConnectedRef ICE 버그 수정)
+│   │   ├── useIncomingCall.ts    # call:incoming 소켓 → incomingCall 상태 관리
+│   │   └── useNotifications.ts   # FCM 디바이스 토큰 + 포그라운드/탭 핸들러 + FCM 딥링크
 │   ├── screens/
 │   │   ├── LoginScreen.tsx          # 탭 UI: 소셜(Google/Kakao/Line) + 이메일/비밀번호
 │   │   ├── SignUpScreen.tsx
@@ -316,7 +318,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | on | `webrtc:offer` | - | ✅ (릴레이) |
 | on | `webrtc:answer` | - | ✅ (릴레이) |
 | on | `webrtc:ice` | - | ✅ (릴레이) |
-| on | `friend:status-change` | `{ friendId, isOnline: boolean }` | ❌ 백엔드 미구현 |
+| on | `friend:status-change` | `{ friendId, isOnline: boolean }` | ✅ 2026-03-16 |
 
 ---
 
@@ -332,7 +334,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-15 (버그 수정 다수 — Socket auth, WebRTC toJSON, Axios interceptor, 친구 신청 403, Babel 캐싱, 앱 아이콘)
+> **마지막 업데이트:** 2026-03-17 (SEC-M6 Android 인증서 피닝 인프라 구축 — network_security_config.xml, 릴리즈/디버그 분리)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -367,6 +369,13 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 앱 아이콘 교체 | `assets/icon.png`, `assets/adaptive-icon.png`, `assets/splash-icon.png`, `app.json` | Gemini 생성 이미지 적용, adaptive backgroundColor #8B5CF6 |
 | Babel 캐싱 충돌 수정 | `babel.config.js` | api.cache(true) + api.env() 충돌 → api.cache(true) 제거 |
 | .env.production | `.env.production` | HTTPS 프로덕션 URL 분리 (api.connecto.app, socket.connecto.app) |
+| 소켓 이벤트 연동 (2026-03-16) | `CallScreen.tsx`, `MatchResultScreen.tsx`, `FriendListScreen.tsx` | `call:ended` 상대방 종료 자동 이동, `call:rematch` 재통화 진입, `call:incoming` 친구 통화 팝업 |
+| IncomingCallModal | `src/hooks/useIncomingCall.ts`, `src/components/IncomingCallModal.tsx`, `App.tsx` | 친구 통화 요청 수락/거절 전역 팝업. App.tsx에서 렌더링 |
+| ICE 자동 종료 버그 수정 | `src/hooks/useWebRTC.ts` | `wasConnectedRef` — ICE 연결된 적 없으면 onCallEnd 미호출 (에뮬레이터 false-positive 방지) |
+| call_rematch FCM 딥링크 | `src/hooks/useNotifications.ts` | FCM data payload string 파싱(sessionId/isOfferer), 백그라운드 → Call 화면 직접 이동 |
+| 친구 온라인 상태 표시 | `src/screens/FriendListScreen.tsx` | `friend:status-change` 소켓 수신 → `onlineStatusMap` 업데이트 → 아바타 초록 점 표시 |
+| 친구 신청 409 UX | `src/screens/MatchResultScreen.tsx` | DUPLICATE_FRIEND_REQUEST → "신청 완료" 표시, 이미 친구 → "친구로 연결됨" 전환 |
+| 인증서 피닝 인프라 (SEC-M6) | `android/app/src/main/res/xml/network_security_config.xml`, `android/app/src/debug/res/xml/network_security_config.xml` | Android Network Security Config. 릴리즈: `api.connecto.app`/`socket.connecto.app` 피닝. 디버그: 비활성화. 배포 전 SPKI 해시 교체 필요 |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 
@@ -412,7 +421,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | SEC-M1 | 닉네임·bio `maxLength` 미설정 | `MyPageScreen.tsx` | ✅ 완료 (2026-03-13) — maxLength 30/500 |
 | SEC-M2 | `console.*` 프로덕션 노출 | 다수 파일 | ✅ 완료 (2026-03-13) — babel-plugin-transform-remove-console + __DEV__ 가드 |
 | SEC-M4 | 이미지 fileSize undefined 통과 / 치수 미검증 | `MyPageScreen.tsx` | ✅ 완료 (2026-03-13) — undefined 차단 + width/height 검증 |
-| SEC-M6 | Axios 인증서 피닝 없음 | `client.ts` | ⏳ 구현 가능 상태 — Bare workflow 확인, SEC-C1 블로커 해제됨. `api.connecto.app` 인증서 SPKI 해시 추출 후 `network_security_config.xml` 또는 `react-native-ssl-pinning` 도입 필요 |
+| SEC-M6 | Axios 인증서 피닝 없음 | `android/app/src/main/res/xml/network_security_config.xml` | ✅ 완료 (2026-03-17) — Android Network Security Config 도입. 릴리즈: 인증서 피닝 적용 (`api.connecto.app`, `socket.connecto.app`). 디버그: 피닝 비활성화 + cleartext 허용. **배포 전 PLACEHOLDER 해시를 실제 SPKI 해시로 교체 필수** |
 | SEC-M7 | IDOR 위험 (partnerId 로컬 폴백 사용) | `MatchResultScreen.tsx` | ✅ 완료 (2026-03-13) — 서버 반환 ID만 사용 |
 
 #### Low — 백로그
@@ -422,11 +431,19 @@ Stack (RootNavigator) — initialRoute: "Login"
 | SEC-L2 | 폼 제출 후 비밀번호 state 미삭제 | ✅ 완료 (2026-03-13) — finally 블록에서 setPassword('') |
 | SEC-L3 | 회원 탈퇴 재인증 없음 | ✅ 완료 (2026-03-13) — 비밀번호 재인증 Modal |
 
-### 백엔드 요청 사항 🔧 (프론트 대기 중)
+### 백엔드 요청 사항 🔧
 
-| 항목 | 위치 | 내용 |
-|------|------|------|
-| `POST /call/again` FCM 알림 미발송 | `CallService.expressCallAgain()` | wantAgain=true 시 상대방에게 FCM 알림 전송 로직 추가 필요 |
-| ALREADY_IN_CALL stale session 기준 | `MatchService.startMatching()` | 10분 → 5분으로 줄이기 (WebRTC 실패 직후 재시도 가능하도록) |
-| `GET /webrtc/turn-credentials` 미구현 | 백엔드 WebRTC 컨트롤러 | 프론트는 STUN fallback 처리 완료, 프로덕션 전 구현 필요 |
-| `friend:status-change` 소켓 | Socket.IO 서버 | 프론트 리스너 등록 완료, 백엔드 emit 구현 후 즉시 동작 |
+> **모든 요청 처리 완료 (2026-03-16)**
+
+| 항목 | 처리 내용 | 상태 |
+|------|----------|------|
+| `POST /call/again` FCM | `call_rematch` FCM data payload 추가. `sessionId`/`webrtcChannelId`/`isOfferer` 모두 string. 프론트 파싱 완료 | ✅ 2026-03-16 |
+| ALREADY_IN_CALL stale session | 이미 5분으로 설정되어 있었음 (`CallSessionScheduler.MAX_CALL_DURATION_MINUTES = 5`) | ✅ 확인 |
+| `friend:status-change` 소켓 | `MatchSocketHandler` connect/disconnect 훅에서 친구 전원에게 emit 추가. 프론트 온라인 점 표시 완료 | ✅ 2026-03-16 |
+| `GET /webrtc/turn-credentials` | SEC-H1 완료 (2026-03-14) — 프론트 연동 완료 | ✅ |
+
+**call_rematch FCM payload 포맷 (data 필드, 모두 string):**
+```json
+{ "type": "call_rematch", "sessionId": "123", "webrtcChannelId": "uuid", "isOfferer": "true" }
+```
+처리 순서: bothWantAgain 확정 → FCM data 먼저 → Socket.IO `call:rematch` emit. 소켓 연결 중이면 소켓 이벤트로 처리, FCM 무시.
