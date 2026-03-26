@@ -115,6 +115,23 @@ export default function ChatScreen() {
     }
   }, [messages.length]);
 
+  // chat:join — 채팅방 진입 시 소켓 룸에 참가
+  // userId 기반 직접 emit은 소켓 재연결 시 맵이 stale해져 메시지 누락 발생.
+  // 룸 기반 라우팅은 소켓 ID가 바뀌어도 roomId로 찾으므로 재연결에도 안정적.
+  // 백엔드가 chat:join 수신 시 socket.join("chat:" + roomId) 처리 필요.
+  React.useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    socket.emit("chat:join", { roomId });
+
+    // 재연결 시에도 룸 재참가
+    const handleReconnect = () => socket.emit("chat:join", { roomId });
+    socket.on("connect", handleReconnect);
+    return () => {
+      socket.off("connect", handleReconnect);
+    };
+  }, [roomId]);
+
   // 소켓 실시간 수신
   React.useEffect(() => {
     const socket = getSocket();
