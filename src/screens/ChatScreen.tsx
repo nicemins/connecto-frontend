@@ -129,6 +129,8 @@ export default function ChatScreen() {
     socket.on("connect", handleReconnect);
     return () => {
       socket.off("connect", handleReconnect);
+      // 채팅방 나갈 때 룸에서 퇴장 (백엔드 메모리 정리)
+      socket.emit("chat:leave", { roomId });
     };
   }, [roomId]);
 
