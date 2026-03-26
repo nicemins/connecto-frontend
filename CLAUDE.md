@@ -371,6 +371,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 | on | `webrtc:answer` | - | ✅ (릴레이) |
 | on | `webrtc:ice` | - | ✅ (릴레이) |
 | on | `friend:status-change` | `{ friendId, isOnline: boolean }` | ✅ 2026-03-16 |
+| emit | `chat:join` | `{ roomId: number }` — 채팅방 진입 시 룸 참가 (재연결 시 자동 재emit) | ✅ 2026-03-26 |
+| emit | `chat:leave` | `{ roomId: number }` — 채팅방 퇴장 시 룸 나가기 | ✅ 2026-03-26 |
 | emit | `chat:send` | `{ roomId: number, content: string }` | ✅ 2026-03-18 |
 | on | `chat:sent` | `{ roomId: number, message: ChatMessage }` — 서버 ACK, 발신자에게만. temp 메시지 즉시 교체 | ✅ 2026-03-25 |
 | on | `chat:receive` | `{ roomId: number, message: ChatMessage }` — 수신자 + 발신자 echo 모두. dedup 처리 | ✅ 2026-03-25 |
@@ -388,13 +390,13 @@ Stack (RootNavigator) — initialRoute: "Login"
 3. **WebRTC 통화:** `webrtc:join` → isOfferer가 offer 생성 → ICE 교환 → 5분 통화 → `POST /call/end` → MatchResultScreen
 4. **통화 결과:** 상대 프로필 조회 / 친구 신청(`POST /friends/request`) / 재연결(`POST /call/again`)
 5. **친구 관리:** 친구 목록(`GET /friends`) / 요청 수락·거절(`PATCH /friends/request/{id}/accept|reject`) / 친구 통화(`POST /call/request/{friendId}`) → `{ sessionId, webrtcChannelId }` → CallScreen(isOfferer: true)
-6. **채팅:** `POST /chat/rooms` (채팅방 생성/조회) → `socket.emit("chat:send", { roomId, content })` → `chat:receive { roomId, message }` 실시간 수신. 소켓 누락 시 4초 폴링 fallback. 백엔드는 userId 기반 직접 emit 방식 (chat:join 불필요)
+6. **채팅:** `POST /chat/rooms` (채팅방 생성/조회) → `socket.emit("chat:join", { roomId })` → `socket.emit("chat:send", { roomId, content })` → `chat:receive { roomId, message }` 실시간 수신. 룸 기반 라우팅 (재연결에도 안정적). 퇴장 시 `socket.emit("chat:leave", { roomId })`
 
 ---
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-26 (통화 거절 처리, ChatList 독립 탭, WebRTC offer 버퍼링 수정, 채팅 REST fallback)
+> **마지막 업데이트:** 2026-03-26 (통화 거절 처리, ChatList 독립 탭, WebRTC offer 버퍼링 수정, 채팅 룸 기반 라우팅, 친구 온라인 상태 전역화)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -450,7 +452,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | ChatList 독립 탭 | `src/navigation/MainTabNavigator.tsx`, `src/navigation/types.ts`, `src/screens/ChatListScreen.tsx` | 탭 구조 4개로 확장: Home → FriendList → ChatList → MyPage. ChatList 탭 분리 (2026-03-26) |
 | WebRTC offer 버퍼링 수정 | `src/hooks/useWebRTC.ts` | webrtc:offer 리스너를 PC 초기화 전 즉시 등록. PC 준비 전 도착한 offer를 pendingOfferRef에 버퍼링 후 처리 (2026-03-26) |
 | 채팅 소켓 연결 검증 | `src/screens/ChatScreen.tsx` | socket.connected 체크 추가. 연결 끊긴 상태에서 전송 시도 시 Alert 표시 (2026-03-26) |
-| 채팅 REST fallback | `src/screens/ChatScreen.tsx` | 5초 타임아웃 시 loadMessages(0) 호출로 서버 상태 동기화. "전송 중..." 영구 stuck 방지 (2026-03-26) |
+| 채팅 룸 기반 라우팅 | `src/screens/ChatScreen.tsx` | chat:join emit (마운트 시), chat:leave emit (언마운트 시), 재연결 시 자동 rejoin. 백엔드 userId→socketId stale 맵 문제 해결 (2026-03-26) |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 

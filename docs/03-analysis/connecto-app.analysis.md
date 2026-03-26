@@ -1,75 +1,120 @@
-# Gap Analysis — connecto-app (3개 태스크)
+# Gap Analysis — connecto-app
 
-**분석일**: 2026-03-05
-**대상 태스크**: Task 1 (토큰 갱신), Task 2 (Match Result API), Task 3 (프로필 수정)
-**Overall Match Rate**: 95%
-
----
-
-## Task 1: Token Auto Refresh (client.ts)
-
-| 요구사항 | 구현 여부 | 비고 |
-|---|---|---|
-| POST /auth/refresh 호출 | ✅ | axios 직접 사용(인터셉터 순환 방지) |
-| withCredentials: true (쿠키 기반) | ✅ | apiClient 및 refresh 요청 모두 적용 |
-| 401 응답 감지 | ✅ | status 체크 |
-| 공개 API (Authorization 없는 요청) 스킵 | ✅ | Authorization 헤더 유무로 분기 |
-| _retry 플래그로 무한 루프 방지 | ✅ | original._retry = true |
-| isRefreshing 동시 다중 요청 큐잉 | ✅ | pendingRequests 배열로 대기 처리 |
-| 갱신 성공 시 원래 요청 재시도 | ✅ | apiClient(original) |
-| 갱신 실패 시 logout + resetToLogin | ✅ | |
-
-**Match Rate: 100%** — Gap 없음
+**분석일**: 2026-03-26
+**Overall Match Rate**: 95% ✅
 
 ---
 
-## Task 2: Match Result API (call.ts + CallScreen.tsx)
+## 요약
 
-| 요구사항 | 구현 여부 | 비고 |
-|---|---|---|
-| GET /match/result/{sessionId} API 추가 | ✅ | getMatchResult() |
-| MatchResultData 타입 정의 | ✅ | partnerId, partnerNickname, 등 |
-| CallScreen에서 endCall 후 getMatchResult 호출 | ✅ | |
-| partnerId를 MatchResultScreen에 전달 | ✅ | undefined 대신 실제 값 |
-| totalTime 서버 값 우선 사용 | ✅ | ?? 연산자로 fallback |
-| API 실패 시 에러 처리 (null 반환) | ✅ | try-catch로 null 반환 |
-| MatchResultScreen에서 partnerNickname 표시 | ❌ | 현재 anonymous 캐릭터 blob만 표시 |
-| MatchResultScreen에서 파트너 프로필 이미지 활용 | ❌ | UI 미반영 |
-
-**Match Rate: 85%** — 소규모 Gap 존재
-
-**Gap**: MatchResultScreen이 서버에서 받은 파트너 닉네임/이미지를 미표시
-→ 의도적 설계(익명성 유지)일 가능성 있어 Critical Gap은 아님
+| 영역 | Match Rate | 상태 |
+|------|:----------:|:----:|
+| chat-image (Design vs Impl) | 98% | ✅ PASS |
+| block-list (Design vs Impl) | 95% | ✅ PASS |
+| chat:join 룸 기반 라우팅 | 100% | ✅ PASS |
+| 통화 거절 처리 | 100% | ✅ PASS |
+| ChatList 독립 탭 | 100% | ✅ PASS |
+| 친구 온라인 상태 전역화 | 100% | ✅ PASS |
+| WebRTC offer 버퍼링 | 100% | ✅ PASS |
+| **Overall** | **95%** | **✅ PASS** |
 
 ---
 
-## Task 3: MyPage 프로필 수정 (profile.ts + authStore.ts + MyPageScreen.tsx)
+## 1. chat-image — 98%
 
-| 요구사항 | 구현 여부 | 비고 |
-|---|---|---|
-| UserProfile에 nickname, bio 필드 추가 | ✅ | authStore.ts |
-| getMyProfile → /users/me/profile (스펙 정렬) | ✅ | 기존 /users/me에서 수정 |
-| PATCH /users/me/profile (updateProfile) | ✅ | profile.ts |
-| MyPageScreen 닉네임 표시 | ✅ | 로드 시 nickname 상태 설정 |
-| 닉네임 편집 UI (인라인 TextInput) | ✅ | 편집/저장/취소 |
-| 20자 길이 validation | ✅ | |
-| 저장 후 authStore 업데이트 | ✅ | updateUserProfile({ nickname }) |
-| profile.ts 미사용 import (useAuthStore) | ❌ | 사용하지 않는 import 존재 |
+| 항목 | 결과 |
+|------|:----:|
+| ChatMessage type (imageUrl, messageType) | ✅ |
+| sendChatImage (POST multipart, part "image") | ✅ |
+| isImageSending state + ref | ✅ |
+| handleSendImage (ImagePicker → 5MB → temp → REST → replace) | ✅ |
+| renderMessage IMAGE 분기 | ✅ |
+| 이미지 버블 200x150, borderRadius 12 | ✅ |
+| isPending ActivityIndicator overlay | ✅ |
+| dedup: `prev.some(m => m.id === msg.id)` | ✅ |
+| UI: [camera][TextInput][send] | ✅ |
 
-**Match Rate: 95%** — 미사용 import 1건
+미세 차이: 카메라 버튼에 업로드 중 ActivityIndicator 추가 (설계 개선)
 
 ---
 
-## 전체 요약
+## 2. block-list — 95%
 
-| 태스크 | Match Rate | 상태 |
-|---|---|---|
-| Task 1: Token Auto Refresh | 100% | 완전 구현 |
-| Task 2: Match Result API | 85% | 소규모 Gap |
-| Task 3: MyPage 프로필 수정 | 95% | 미사용 import |
-| **전체** | **93%** | **>= 90% 기준 충족** |
+| 항목 | 결과 |
+|------|:----:|
+| BlockedUser type 4개 필드 | ✅ |
+| getBlockedUsers() → GET /users/me/blocks | ✅ |
+| unblockUser() 재사용 | ✅ |
+| RootStackParamList BlockList 등록 | ✅ |
+| 3-way 렌더링 (로딩/비어있음/목록) | ✅ |
+| MyPageScreen 진입점 | ✅ |
 
-## 잔여 Gap 처리
+미세 차이: 차단 해제 시 Alert.alert 확인 다이얼로그 추가 (UX 개선), 아바타 44px (설계 40px)
 
-1. Task 2 Gap: MatchResultScreen의 파트너 닉네임/이미지 표시는 스펙상 "통화 중 정보 비공개 → 종료 후 프로필 공개" 원칙에 의거, 의도적 미구현으로 판단. 별도 티켓 생성 권장.
-2. Task 3 minor: profile.ts의 `useAuthStore` 미사용 import → 즉시 제거 가능.
+---
+
+## 3. chat:join 룸 기반 라우팅 — 100%
+
+| 항목 | 위치 |
+|------|------|
+| mount 시 `chat:join { roomId }` emit | `ChatScreen.tsx:125` |
+| unmount 시 `chat:leave { roomId }` emit | `ChatScreen.tsx:131` |
+| 재연결 시 자동 rejoin | `ChatScreen.tsx:128` |
+| 백엔드 `socket.join("chat:" + roomId)` 확인 | `ChatSocketHandler.java:64` |
+| 백엔드 룸 브로드캐스트 확인 | `ChatSocketHandler.java:105-108` |
+
+---
+
+## 4. 통화 거절 — 100%
+
+| 항목 | 위치 |
+|------|------|
+| `rejectCall(sessionId)` POST /call/reject/{sessionId} | `call.ts:29-34` |
+| IncomingCallModal fire-and-forget | `IncomingCallModal.tsx:32-34` |
+| CallScreen `call:rejected` 소켓 핸들러 | `CallScreen.tsx:158-179` |
+| sessionId 가드 | `CallScreen.tsx:163` |
+| isEndingRef race condition 방지 | `CallScreen.tsx:165-166` |
+| 타이머 정리 후 goBack | `CallScreen.tsx:167-169` |
+
+---
+
+## 5. ChatList 독립 탭 — 100%
+
+| 항목 | 위치 |
+|------|------|
+| 4개 탭: Home→FriendList→ChatList→MyPage | `MainTabNavigator.tsx:47-87` |
+| MainTabParamList에 ChatList 포함 | `types.ts:30` |
+| ChatListScreen import | `MainTabNavigator.tsx:8` |
+
+---
+
+## 6. 친구 온라인 상태 전역화 — 100%
+
+| 항목 | 위치 |
+|------|------|
+| `friendOnlineStatus` + `updateFriendOnline` in store | `authStore.ts:15,34` |
+| `useIncomingCall`에서 `friend:status-change` 전역 수집 | `useIncomingCall.ts:31-33` |
+| ChatListScreen 스토어 읽기 | `ChatListScreen.tsx:164` |
+| FriendListScreen 스토어 읽기 | `FriendListScreen.tsx:51` |
+
+---
+
+## 7. WebRTC offer 버퍼링 — 100%
+
+| 항목 | 위치 |
+|------|------|
+| `pendingOfferRef` 선언 | `useWebRTC.ts:70` |
+| `webrtc:offer` 리스너 PC 초기화 전 등록 | `useWebRTC.ts:258` |
+| PC 준비 전 offer 버퍼링 | `useWebRTC.ts:259-262` |
+| PC+stream 초기화 후 버퍼 처리 | `useWebRTC.ts:282-290` |
+
+---
+
+## 수정 완료 항목
+
+| 항목 | 조치 |
+|------|------|
+| CLAUDE.md Section 8.6 `(chat:join 불필요)` 제거 | ✅ 수정 |
+| CLAUDE.md Section 7 소켓 테이블 `chat:join`/`chat:leave` 추가 | ✅ 수정 |
+| CLAUDE.md Section 9 `채팅 REST fallback` → `채팅 룸 기반 라우팅`으로 교체 | ✅ 수정 |
+| `ChatScreen.tsx` 타이핑 쓰로틀 주석 "2초" → "1초" | ✅ 수정 |

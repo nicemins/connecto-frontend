@@ -418,7 +418,7 @@ export default function ChatScreen() {
               value={input}
               onChangeText={(text) => {
                 setInput(text);
-                // 타이핑 이벤트 emit — 2초 쓰로틀 (백엔드 구현 후 상대방에게 전달)
+                // 타이핑 이벤트 emit — 1초 쓰로틀
                 if (text.length > 0) {
                   const now = Date.now();
                   if (now - lastTypingEmitRef.current > 1000) {
