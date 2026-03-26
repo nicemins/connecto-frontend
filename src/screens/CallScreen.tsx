@@ -103,8 +103,9 @@ export default function CallScreen() {
         await endCall(sessionId, reason);
       } catch (e: any) {
         // 403 ACCESS_DENIED = 상대방이 먼저 종료 → 세션은 ENDED, 정상 진행
+        // 409 INVALID_SESSION_STATE = 이미 종료된 세션 → 동일하게 MatchResult로 이동
         const status = e?.response?.status ?? e?.status;
-        if (status !== 403) {
+        if (status !== 403 && status !== 409) {
           console.error("endCall error:", e);
           Alert.alert("오류", "통화 종료 중 오류가 발생했습니다.");
           isEndingRef.current = false;

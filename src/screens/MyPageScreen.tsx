@@ -328,6 +328,12 @@ export default function MyPageScreen() {
           <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
             <Text className="text-white text-lg font-bold mb-3">계정</Text>
             <Pressable
+              onPress={() => navigation.navigate("BlockList")}
+              className="h-12 items-center justify-center rounded-2xl bg-white/10 border border-white/20 mb-2"
+            >
+              <Text className="text-white text-sm font-semibold">차단 목록</Text>
+            </Pressable>
+            <Pressable
               onPress={handleLogout}
               className="h-12 items-center justify-center rounded-2xl bg-white/10 border border-white/20 mb-2"
             >

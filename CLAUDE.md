@@ -33,6 +33,7 @@
 | Animation | Moti + Reanimated | v4 |
 | Navigation | React Navigation | v7 |
 | Token 저장 | expo-secure-store | - |
+| 로컬 저장소 | @react-native-async-storage/async-storage | - |
 
 ---
 
@@ -103,7 +104,8 @@ connecto-app/
 │   │   ├── CallScreen.tsx           # 통화 화면 (WebRTC)
 │   │   ├── MatchResultScreen.tsx    # 통화 결과 + 친구 신청
 │   │   ├── FriendListScreen.tsx     # 친구 목록 + 친구 요청 수락/거절
-│   │   └── MyPageScreen.tsx         # 마이페이지
+│   │   ├── MyPageScreen.tsx         # 마이페이지
+│   │   └── BlockListScreen.tsx      # 차단 목록 조회 + 해제 (block-list)
 │   └── navigation/
 │       ├── RootNavigator.tsx        # Stack navigator
 │       ├── MainTabNavigator.tsx     # Bottom tabs
@@ -127,7 +129,9 @@ Stack (RootNavigator) — initialRoute: "Login"
 │   └── MyPage
 ├── Matching
 ├── Call         { sessionId: number, webrtcChannelId: string, isOfferer: boolean }
-└── MatchResult  { sessionId: number, partnerId?: string, totalTime: string }
+├── MatchResult  { sessionId: number, partnerId?: string, totalTime: string }
+├── Chat         { roomId: number, friendNickname: string, friendProfileImageUrl?: string }
+└── BlockList    (undefined)
 ```
 
 **온보딩 플로우:**
@@ -181,6 +185,24 @@ Stack (RootNavigator) — initialRoute: "Login"
 - `response.data.data`로 실제 데이터 추출 (공통 래퍼 unwrap)
 - 인증 요청은 Axios interceptor가 자동으로 Bearer 토큰 주입
 - 백엔드 미구현 API는 try/catch로 fallback 처리 (앱 크래시 방지)
+
+### 에러 응답 형식 (2026-03-23 통일)
+모든 HTTP 에러 응답이 ApiResponse 형식으로 통일됨:
+```json
+{ "success": false, "code": "에러코드", "message": "메시지", "timestamp": "2026-03-23T..." }
+```
+
+| HTTP | code | 상황 |
+|------|------|------|
+| 400 | `INVALID_INPUT` | 유효성 실패, 잘못된 JSON, 지원 안 되는 메서드/타입 |
+| 401 | `INVALID_TOKEN` / `EXPIRED_TOKEN` | 토큰 없음·만료·쿠키 누락 |
+| 403 | `ACCESS_DENIED` / `MESSAGE_BLOCKED` | 권한 없음, 차단 상태 메시지 전송 |
+| 404 | `*_NOT_FOUND` | 리소스 없음 |
+| 409 | `ALREADY_IN_CALL` / `DUPLICATE_FRIEND_REQUEST` 등 | 충돌 상태 |
+| 429 | `TOO_MANY_REQUESTS` | 로그인/소셜 분당 10회, 회원가입 시간당 5회 초과 |
+| 500 | `INTERNAL_ERROR` | 서버 오류 |
+
+> 프론트 핸들링: HTTP 상태코드 기반으로 처리 (기존 코드 호환). `code` 필드 분기는 `MatchResultScreen` (409 케이스)만 해당.
 
 ### 스타일링
 - NativeWind `className` prop 우선 사용
@@ -285,6 +307,30 @@ Stack (RootNavigator) — initialRoute: "Login"
 |--------|-----------|------|---------|
 | GET | `/webrtc/turn-credentials` | 단기 TURN 자격증명 조회 → `{ iceServers: RTCIceServer[], ttl: number }` (SEC-H1) | ✅ 2026-03-14 |
 
+### 6.10 채팅 (`/chat`)
+
+| 메서드 | 엔드포인트 | 설명 | BE 상태 |
+|--------|-----------|------|---------|
+| POST | `/chat/rooms` | 채팅방 생성 (이미 있으면 기존 반환) `{ friendId }` | ✅ |
+| GET | `/chat/rooms` | 채팅방 목록 조회 (최신 메시지 순) | ✅ |
+| GET | `/chat/rooms/{roomId}/messages?page=0&size=50` | 메시지 히스토리 (최신순 페이징) | ✅ |
+| POST | `/chat/rooms/{roomId}/messages/image` | 이미지 전송 `multipart/form-data` (part: "image", 최대 10MB) → ChatMessage | ✅ 2026-03-25 |
+
+**GET /chat/rooms 응답:**
+```typescript
+[{ roomId: number, friendId: number, friendNickname: string, friendProfileImageUrl: string | null, lastMessage: string | null, updatedAt: string }]
+```
+
+**GET /chat/rooms/{roomId}/messages 응답:**
+```typescript
+{ messages: [{ id: number, senderId: number, content: string | null, imageUrl?: string | null, messageType?: "TEXT" | "IMAGE", createdAt: string }], hasNext: boolean, page: number, size: number }
+```
+
+**chat:receive 소켓 payload:**
+```typescript
+{ roomId: number, message: { id: number, senderId: number, content: string | null, imageUrl?: string | null, messageType?: "TEXT" | "IMAGE", createdAt: string } }
+```
+
 ### 6.8 친구 / 신고
 
 | 메서드 | 엔드포인트 | 설명 | BE 상태 |
@@ -294,6 +340,11 @@ Stack (RootNavigator) — initialRoute: "Login"
 | POST | `/friends/request` | 친구 신청 `{ receiverId }` | ✅ 2026-03-06 |
 | PATCH | `/friends/request/{id}/accept` | 친구 요청 수락 | ✅ 2026-03-06 |
 | PATCH | `/friends/request/{id}/reject` | 친구 요청 거절 | ✅ 2026-03-06 |
+| GET | `/friends/check?userId={targetUserId}` | 친구/차단 여부 확인 → `{ isFriend, friendshipId, isBlocked }` | ✅ 2026-03-18 |
+| DELETE | `/friends/{friendshipId}` | 친구 삭제 | ✅ 2026-03-18 |
+| POST | `/friends/{friendshipId}/block` | 친구 차단 (친구 관계 삭제 + 차단 생성) | ✅ 2026-03-18 |
+| GET | `/users/me/blocks` | 차단 목록 조회 → `[{ blockedUserId, nickname, profileImageUrl, blockedAt }]` | ✅ 2026-03-25 |
+| DELETE | `/users/me/blocks/{blockedUserId}` | 차단 해제 | ✅ 2026-03-18 |
 | POST | `/reports` | 신고 `{ sessionId, reportedUserId, reason? }` | ✅ 2026-03-06 |
 
 ---
@@ -319,6 +370,12 @@ Stack (RootNavigator) — initialRoute: "Login"
 | on | `webrtc:answer` | - | ✅ (릴레이) |
 | on | `webrtc:ice` | - | ✅ (릴레이) |
 | on | `friend:status-change` | `{ friendId, isOnline: boolean }` | ✅ 2026-03-16 |
+| emit | `chat:send` | `{ roomId: number, content: string }` | ✅ 2026-03-18 |
+| on | `chat:sent` | `{ roomId: number, message: ChatMessage }` — 서버 ACK, 발신자에게만. temp 메시지 즉시 교체 | ✅ 2026-03-25 |
+| on | `chat:receive` | `{ roomId: number, message: ChatMessage }` — 수신자 + 발신자 echo 모두. dedup 처리 | ✅ 2026-03-25 |
+| on | `chat:error` | `{ message: string }` | ✅ 2026-03-18 |
+| emit | `chat:typing` | `{ roomId: number }` — 입력 중 (1초 쓰로틀, 백엔드 디바운싱 없음) | ✅ 2026-03-25 |
+| on | `chat:typing` | `{ roomId: number }` — 상대방 입력 중 표시 (3초 후 자동 hide) | ✅ 2026-03-25 |
 
 ---
 
@@ -329,12 +386,13 @@ Stack (RootNavigator) — initialRoute: "Login"
 3. **WebRTC 통화:** `webrtc:join` → isOfferer가 offer 생성 → ICE 교환 → 5분 통화 → `POST /call/end` → MatchResultScreen
 4. **통화 결과:** 상대 프로필 조회 / 친구 신청(`POST /friends/request`) / 재연결(`POST /call/again`)
 5. **친구 관리:** 친구 목록(`GET /friends`) / 요청 수락·거절(`PATCH /friends/request/{id}/accept|reject`) / 친구 통화(`POST /call/request/{friendId}`) → `{ sessionId, webrtcChannelId }` → CallScreen(isOfferer: true)
+6. **채팅:** `POST /chat/rooms` (채팅방 생성/조회) → `socket.emit("chat:send", { roomId, content })` → `chat:receive { roomId, message }` 실시간 수신. 소켓 누락 시 4초 폴링 fallback. 백엔드는 userId 기반 직접 emit 방식 (chat:join 불필요)
 
 ---
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-17 (SEC-M6 Android 인증서 피닝 인프라 구축 — network_security_config.xml, 릴리즈/디버그 분리)
+> **마지막 업데이트:** 2026-03-25 (차단 목록 UI 구현 완료 — BlockListScreen, GET /users/me/blocks 연동)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -376,6 +434,16 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 친구 온라인 상태 표시 | `src/screens/FriendListScreen.tsx` | `friend:status-change` 소켓 수신 → `onlineStatusMap` 업데이트 → 아바타 초록 점 표시 |
 | 친구 신청 409 UX | `src/screens/MatchResultScreen.tsx` | DUPLICATE_FRIEND_REQUEST → "신청 완료" 표시, 이미 친구 → "친구로 연결됨" 전환 |
 | 인증서 피닝 인프라 (SEC-M6) | `android/app/src/main/res/xml/network_security_config.xml`, `android/app/src/debug/res/xml/network_security_config.xml` | Android Network Security Config. 릴리즈: `api.connecto.app`/`socket.connecto.app` 피닝. 디버그: 비활성화. 배포 전 SPKI 해시 교체 필요 |
+| 채팅 기능 | `src/screens/ChatListScreen.tsx`, `src/screens/ChatScreen.tsx`, `src/api/chat.ts` | 채팅방 목록, 실시간 채팅. 소켓 `chat:send`/`chat:receive`/`chat:sent` ACK. 폴링 제거 완료 (백엔드 echo 지원) |
+| socket.ts 안정성 개선 | `src/api/socket.ts` | `getSocket()` — reconnection 중 `removeAllListeners()` 후 새 인스턴스 생성하던 버그 수정. `socketInstance === null` 일 때만 생성, 재연결은 Socket.IO 내장 메커니즘에 위임 |
+| 채팅 "전송 중..." 버그 수정 | `src/screens/ChatScreen.tsx` | 백엔드가 sender에게 chat:receive echo 미전송 → 폴링에서 pendingQueue content 매칭으로 temp 메시지 교체 (2026-03-24) |
+| ChatListScreen UX 개선 | `src/screens/ChatListScreen.tsx` | 미읽 메시지 뱃지(숫자), 실시간 시간 표시(1분 interval), 온라인/오프라인 점(Discord 스타일), -1일전 버그 수정(서버/클라이언트 시계 오차 대응) (2026-03-24) |
+| 채팅 미읽 카운트 영속화 | `src/screens/ChatListScreen.tsx` | `@react-native-async-storage/async-storage` 도입. 앱 재시작 후 미읽 카운트 유지. 로드 완료 후에만 저장(unreadLoadedRef guard) (2026-03-25) |
+| 채팅 타이핑 인디케이터 | `src/screens/ChatScreen.tsx` | `chat:typing` emit(1초 쓰로틀) + on 핸들러(3초 hide) + UI. 백엔드 relay ✅ 완료 (2026-03-25) |
+| 채팅 폴링 제거 | `src/screens/ChatScreen.tsx` | 백엔드 sender echo 완료로 4초 폴링 useEffect 삭제, AppState import 제거 (2026-03-25) |
+| 채팅 이미지 전송 | `src/screens/ChatScreen.tsx`, `src/api/chat.ts` | expo-image-picker, 5MB 제한, temp 버블 + 로딩 overlay, echo dedup, 📷 버튼 UI (2026-03-25) |
+| chat:sent ACK 처리 | `src/screens/ChatScreen.tsx` | 서버 ACK 수신 시 temp 메시지 즉시 교체. 이후 chat:receive echo는 dedup 자동 스킵 (2026-03-25) |
+| 차단 목록 UI | `src/screens/BlockListScreen.tsx`, `src/api/friends.ts` | GET /users/me/blocks 연동, FlatList + 차단 해제 Alert, 빈 상태 처리, MyPage 진입점 (2026-03-25) |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 
@@ -392,7 +460,22 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 기능 | 파일 | 상태 |
 |------|------|------|
 | Kakao·Line 로그인 | `LoginScreen.tsx` | ⏳ 백엔드 미지원 (Google만 지원), "준비 중" Alert 유지 |
-| 두 에뮬레이터 동시 매칭 테스트 | AVD 환경 | ⏳ AVD 복사본 이미지 충돌 문제 — Android Studio에서 새 AVD 직접 생성 필요 |
+| 두 에뮬레이터 동시 매칭 테스트 | AVD 환경 | ✅ Medium_Phone + Medium_Phone_2 구성 완료 (2026-03-24) |
+
+### 알려진 버그 / 개선 필요 🐛
+
+| 우선순위 | 항목 | 파일 | 설명 |
+|---------|------|------|------|
+| ~~🔴 High~~ ✅ | 채팅 미읽 카운트 영속화 | `ChatListScreen.tsx` | ✅ 완료 (2026-03-25) — AsyncStorage(`@chat_unread_counts`) 영속화. 앱 재시작 후 미읽 카운트 유지 |
+| ~~🔴 High~~ ✅ | 채팅 echo 미수신 | `ChatScreen.tsx` | ✅ 완료 (2026-03-25) — 백엔드 sender echo 추가. 4초 폴링 제거, AppState import 정리 |
+| ~~🟡 Medium~~ ✅ | 친구 온라인 초기 상태 미조회 | `ChatListScreen.tsx`, `FriendListScreen.tsx` | ✅ 백엔드 완료 (2026-03-25) — 소켓 connect 시 서버가 `friend:status-change` 자동 push. 프론트 추가 작업 없음 |
+| ~~🟡 Medium~~ ✅ | 채팅 타이핑 인디케이터 없음 | `ChatScreen.tsx` | ✅ 완료 (2026-03-25) — 프론트: emit 1초 쓰로틀 + 3초 hide. 백엔드: relay 완료 |
+| 🟡 Medium | SEC-H2 미완료 | `.env` | Google OAuth Web Client ID GCP Console authorized URI 제한 미완료 |
+| 🟡 Medium | SEC-M6 배포 전 작업 | `network_security_config.xml` | SPKI 해시 PLACEHOLDER → 실제 해시 교체 필요 |
+| ~~🟢 Low~~ ✅ | 채팅 이미지 전송 | `ChatScreen.tsx`, `src/api/chat.ts` | ✅ 완료 (2026-03-25) — 📷 버튼, 갤러리 선택, 업로드, 이미지 버블, echo dedup |
+| ~~🟢 Low~~ ✅ | 차단 목록 UI | `BlockListScreen.tsx`, `friends.ts` | ✅ 완료 (2026-03-25) — BlockListScreen 신규, GET /users/me/blocks 연동, 차단 해제 확인 Alert |
+| 🟢 Low | 매칭 필터 없음 | `HomeScreen.tsx` | 언어/관심사 기반 매칭 조건 설정 UI 미구현 |
+| 🟢 Low | iOS 빌드 미테스트 | 전체 | 현재 Android 에뮬레이터만 테스트, iOS 빌드 확인 필요 |
 
 ### 보안 수정 현황 🔒 (감사: 2026-03-11 / 프론트 수정: 2026-03-13)
 

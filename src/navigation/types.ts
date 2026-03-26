@@ -16,6 +16,12 @@ export type RootStackParamList = {
     partnerId?: string;
     totalTime: string;
   };
+  Chat: {
+    roomId: number;
+    friendNickname: string;
+    friendProfileImageUrl?: string;
+  };
+  BlockList: undefined;
 };
 
 export type MainTabParamList = {

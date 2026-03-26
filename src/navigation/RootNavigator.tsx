@@ -11,6 +11,8 @@ import InterestsSetupScreen from "../screens/InterestsSetupScreen";
 import MatchingScreen from "../screens/MatchingScreen";
 import CallScreen from "../screens/CallScreen";
 import MatchResultScreen from "../screens/MatchResultScreen";
+import ChatScreen from "../screens/ChatScreen";
+import BlockListScreen from "../screens/BlockListScreen";
 import MainTabNavigator from "./MainTabNavigator";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -31,6 +33,8 @@ export default function RootNavigator() {
         <Stack.Screen name="Matching" component={MatchingScreen} />
         <Stack.Screen name="Call" component={CallScreen} />
         <Stack.Screen name="MatchResult" component={MatchResultScreen} />
+        <Stack.Screen name="Chat" component={ChatScreen} />
+        <Stack.Screen name="BlockList" component={BlockListScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

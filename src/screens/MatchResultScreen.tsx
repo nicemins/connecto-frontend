@@ -16,7 +16,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { requestFriend } from "../api/friends";
+import { requestFriend, checkFriendStatus } from "../api/friends";
 import { reportUser } from "../api/report";
 import { callAgain } from "../api/call";
 import { getMatchResult, type MatchResultData } from "../api/match";
@@ -62,7 +62,18 @@ export default function MatchResultScreen() {
   const loadPartnerProfile = React.useCallback(() => {
     setProfileLoadFailed(false);
     getMatchResult(sessionId)
-      .then((result) => setPartnerProfile(result))
+      .then(async (result) => {
+        setPartnerProfile(result);
+        // 이미 친구인지 확인해서 버튼 초기 상태 설정
+        if (result?.profile?.userId) {
+          try {
+            const status = await checkFriendStatus(result.profile.userId);
+            if (status.isFriend) setFriendRequestStatus("mutual");
+          } catch {
+            // 확인 실패해도 기본값(none) 유지
+          }
+        }
+      })
       .catch(() => {
         setProfileLoadFailed(true);
         Alert.alert(
@@ -116,7 +127,6 @@ export default function MatchResultScreen() {
       const result = await requestFriend(resolvedPartnerNumericId);
       if (result.status === "ACCEPTED") {
         setFriendRequestStatus("mutual");
-        Alert.alert("친구 연결 완료!", "친구로 연결되었습니다!", [{ text: "확인" }]);
       } else {
         setFriendRequestStatus("requested");
       }
@@ -127,10 +137,8 @@ export default function MatchResultScreen() {
       if (status === 409) {
         if (code === "DUPLICATE_FRIEND_REQUEST") {
           setFriendRequestStatus("requested");
-          Alert.alert("알림", "이미 친구 신청을 보낸 상태입니다.\n상대방이 수락하면 친구로 연결됩니다.");
         } else {
           setFriendRequestStatus("mutual");
-          Alert.alert("알림", "이미 친구 관계입니다.");
         }
       } else {
         if (__DEV__) console.error("Friend request error:", e);
@@ -266,38 +274,47 @@ export default function MatchResultScreen() {
 
             {friendRequestStatus === "mutual" ? (
               <View className="items-center">
-                <View className="mb-4 px-4 py-3 rounded-2xl bg-green-500/20 border-2 border-green-400">
-                  <Text className="text-base font-semibold text-green-200 text-center">
-                    친구로 연결되었습니다!
+                <View className="mb-4 w-full px-4 py-4 rounded-2xl bg-green-500/20 border-2 border-green-400 items-center">
+                  <Text className="text-xl mb-1">🎉</Text>
+                  <Text className="text-base font-bold text-green-200 text-center">
+                    친구가 되었어요!
+                  </Text>
+                  <Text className="text-xs text-green-300/70 mt-1 text-center">
+                    친구 목록에서 언제든 통화할 수 있어요
                   </Text>
                 </View>
                 <Pressable
                   onPress={() => setShowProfileModal(true)}
-                  className="h-12 w-full items-center justify-center rounded-2xl bg-white/20 border border-white/30"
+                  className="h-13 w-full items-center justify-center rounded-2xl bg-purple-500"
                 >
                   <Text className="text-base font-semibold text-white">
                     프로필 보기
                   </Text>
                 </Pressable>
               </View>
+            ) : friendRequestStatus === "requested" ? (
+              <View className="w-full px-4 py-4 rounded-2xl bg-white/10 border border-white/20 items-center">
+                <Text className="text-base font-semibold text-white/80 text-center">
+                  친구 신청 완료 ✓
+                </Text>
+                <Text className="text-xs text-white/50 mt-1 text-center">
+                  상대방이 수락하면 친구로 연결됩니다
+                </Text>
+              </View>
             ) : (
               <Pressable
                 onPress={handleFriendRequest}
-                disabled={isRequesting || friendRequestStatus === "requested" || profileLoadFailed || !resolvedPartnerNumericId}
+                disabled={isRequesting || profileLoadFailed || !resolvedPartnerNumericId}
                 className={`h-14 w-full items-center justify-center rounded-2xl ${
-                  friendRequestStatus === "requested" || profileLoadFailed
-                    ? "bg-gray-500/50"
-                    : "bg-purple-500"
+                  profileLoadFailed ? "bg-gray-500/50" : "bg-purple-500"
                 } disabled:opacity-60`}
               >
                 <Text className="text-lg font-semibold text-white">
                   {profileLoadFailed
                     ? "정보 없음"
-                    : friendRequestStatus === "requested"
-                    ? "신청 완료"
                     : isRequesting
                     ? "신청 중..."
-                    : "친구 신청"}
+                    : "친구 신청하기"}
                 </Text>
               </Pressable>
             )}

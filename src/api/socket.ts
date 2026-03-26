@@ -5,7 +5,7 @@ import { navigationRef } from "../navigation/navigationRef";
 
 const SOCKET_URL =
   process.env.EXPO_PUBLIC_SOCKET_URL ??
-  process.env.EXPO_PUBLIC_API_URL?.replace("/api/v1", "") ??
+  process.env.EXPO_PUBLIC_API_URL ??
   "http://localhost:8080";
 
 let socketInstance: Socket | null = null;
@@ -16,14 +16,10 @@ export function getSocket(): Socket | null {
   const token = useAuthStore.getState().accessToken;
   if (!token) return null;
 
-  if (!socketInstance || !socketInstance.connected) {
-    // 이전 소켓이 연결 해제 중인 경우 완전히 정리
-    if (socketInstance && !socketInstance.connected) {
-      socketInstance.removeAllListeners();
-      socketInstance.disconnect();
-      socketInstance = null;
-    }
-
+  // 소켓 인스턴스가 없을 때만 새로 생성
+  // — 재연결 중(!connected)인 소켓을 파괴하면 다른 컴포넌트의 리스너가
+  //   모두 사라지는 버그가 발생하므로, Socket.IO 내장 재연결에 맡긴다
+  if (!socketInstance) {
     socketInstance = io(SOCKET_URL, {
       // netty-socketio 2.0.3: auth 객체 미지원 → extraHeaders + query 사용
       query: { token },
