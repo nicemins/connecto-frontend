@@ -33,7 +33,7 @@ import {
 import { getSocket } from "../api/socket";
 
 type ChatListNavProp = CompositeNavigationProp<
-  BottomTabNavigationProp<MainTabParamList, "FriendList">,
+  BottomTabNavigationProp<MainTabParamList, "ChatList">,
   NativeStackNavigationProp<RootStackParamList>
 >;
 

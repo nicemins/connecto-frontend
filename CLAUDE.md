@@ -293,6 +293,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | POST | `/call/end` | 통화 종료 `{ sessionId }` | ✅ |
 | POST | `/call/again` | 재연결 의사 `{ sessionId, wantAgain }` | ✅ |
 | POST | `/call/request/{friendId}` | 친구에게 통화 요청 → `{ sessionId, webrtcChannelId, friendId }` + FCM 전송 | ✅ 2026-03-06 |
+| POST | `/call/reject/{sessionId}` | 수신자가 통화 거절 → 발신자에게 `call:rejected { sessionId }` 소켓 emit | ✅ 2026-03-26 |
 
 ### 6.7 푸시 알림 (`/users/me/device-token`)
 
@@ -376,6 +377,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | on | `chat:error` | `{ message: string }` | ✅ 2026-03-18 |
 | emit | `chat:typing` | `{ roomId: number }` — 입력 중 (1초 쓰로틀, 백엔드 디바운싱 없음) | ✅ 2026-03-25 |
 | on | `chat:typing` | `{ roomId: number }` — 상대방 입력 중 표시 (3초 후 자동 hide) | ✅ 2026-03-25 |
+| on | `call:rejected` | `{ sessionId: number }` — 발신자 측 수신. 수신자가 거절 시 발신 화면 goBack() | ✅ 2026-03-26 |
 
 ---
 
@@ -392,7 +394,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-25 (차단 목록 UI 구현 완료 — BlockListScreen, GET /users/me/blocks 연동)
+> **마지막 업데이트:** 2026-03-26 (통화 거절 처리, ChatList 독립 탭, WebRTC offer 버퍼링 수정, 채팅 REST fallback)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -444,6 +446,11 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 채팅 이미지 전송 | `src/screens/ChatScreen.tsx`, `src/api/chat.ts` | expo-image-picker, 5MB 제한, temp 버블 + 로딩 overlay, echo dedup, 📷 버튼 UI (2026-03-25) |
 | chat:sent ACK 처리 | `src/screens/ChatScreen.tsx` | 서버 ACK 수신 시 temp 메시지 즉시 교체. 이후 chat:receive echo는 dedup 자동 스킵 (2026-03-25) |
 | 차단 목록 UI | `src/screens/BlockListScreen.tsx`, `src/api/friends.ts` | GET /users/me/blocks 연동, FlatList + 차단 해제 Alert, 빈 상태 처리, MyPage 진입점 (2026-03-25) |
+| 통화 거절 처리 | `src/api/call.ts`, `src/components/IncomingCallModal.tsx`, `src/screens/CallScreen.tsx` | 수신자: 거절 버튼 → POST /call/reject/{sessionId} (fire-and-forget). 발신자: call:rejected 소켓 수신 → goBack() (2026-03-26) |
+| ChatList 독립 탭 | `src/navigation/MainTabNavigator.tsx`, `src/navigation/types.ts`, `src/screens/ChatListScreen.tsx` | 탭 구조 4개로 확장: Home → FriendList → ChatList → MyPage. ChatList 탭 분리 (2026-03-26) |
+| WebRTC offer 버퍼링 수정 | `src/hooks/useWebRTC.ts` | webrtc:offer 리스너를 PC 초기화 전 즉시 등록. PC 준비 전 도착한 offer를 pendingOfferRef에 버퍼링 후 처리 (2026-03-26) |
+| 채팅 소켓 연결 검증 | `src/screens/ChatScreen.tsx` | socket.connected 체크 추가. 연결 끊긴 상태에서 전송 시도 시 Alert 표시 (2026-03-26) |
+| 채팅 REST fallback | `src/screens/ChatScreen.tsx` | 5초 타임아웃 시 loadMessages(0) 호출로 서버 상태 동기화. "전송 중..." 영구 stuck 방지 (2026-03-26) |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 

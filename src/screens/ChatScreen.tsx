@@ -203,8 +203,8 @@ export default function ChatScreen() {
     if (!trimmed || isSendingRef.current || !myUserId) return;
 
     const socket = getSocket();
-    if (!socket) {
-      Alert.alert("오류", "연결이 끊겼습니다. 잠시 후 다시 시도해주세요.");
+    if (!socket || !socket.connected) {
+      Alert.alert("오류", "서버와 연결이 끊겼습니다. 잠시 후 다시 시도해주세요.");
       return;
     }
 
@@ -228,7 +228,7 @@ export default function ChatScreen() {
 
     socket.emit("chat:send", { roomId, content: trimmed });
 
-    // C2: 5초 타임아웃 — echo 미도착 시 isSending 강제 해제
+    // C2: 5초 타임아웃 — echo 미도착 시 isSending 강제 해제 + REST fallback (서버 상태 동기화)
     setTimeout(() => {
       const still = pendingQueueRef.current.findIndex((p) => p.tempId === tempId);
       if (still !== -1) {
@@ -237,9 +237,11 @@ export default function ChatScreen() {
           isSendingRef.current = false;
           setIsSending(false);
         }
+        // 소켓 ACK 미수신 시 REST API로 서버 상태 동기화 (temp 메시지 제거 + 실제 메시지 로드)
+        loadMessages(0);
       }
     }, 5000);
-  }, [input, myUserId, roomId]);
+  }, [input, myUserId, roomId, loadMessages]);
 
   // 이미지 전송
   const handleSendImage = React.useCallback(async () => {

@@ -154,6 +154,30 @@ export default function CallScreen() {
     };
   }, [sessionId]);
 
+  // call:rejected 소켓 수신 — 수신자가 거절 시 발신 화면 종료
+  React.useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleRejected = (data: { sessionId: number }) => {
+      if (data.sessionId === sessionId) {
+        if (__DEV__) console.log("[CallScreen] call:rejected received");
+        if (isEndingRef.current) return;
+        isEndingRef.current = true;
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+        navigation.goBack();
+      }
+    };
+
+    socket.on("call:rejected", handleRejected);
+    return () => {
+      socket.off("call:rejected", handleRejected);
+    };
+  }, [sessionId, navigation]);
+
   // 타이머가 00:00이 되었을 때 자동으로 종료 처리
   React.useEffect(() => {
     if (secondsLeft === 0 && !isEndingRef.current) {

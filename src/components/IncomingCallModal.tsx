@@ -10,6 +10,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { navigationRef } from "../navigation/navigationRef";
 import CharacterBlob from "./CharacterBlob";
 import type { IncomingCallData } from "../hooks/useIncomingCall";
+import { rejectCall } from "../api/call";
 
 type Props = {
   incomingCall: IncomingCallData | null;
@@ -28,9 +29,10 @@ export default function IncomingCallModal({ incomingCall, onDismiss }: Props) {
   }, [incomingCall, onDismiss]);
 
   const handleReject = React.useCallback(() => {
-    // 거절 API 없음 — 팝업 닫기만 처리 (세션은 5분 후 서버 자동 정리)
+    if (!incomingCall) return;
+    rejectCall(incomingCall.sessionId).catch(() => {});
     onDismiss();
-  }, [onDismiss]);
+  }, [incomingCall, onDismiss]);
 
   return (
     <Modal

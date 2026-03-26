@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import type { MainTabParamList } from "./types";
 import HomeScreen from "../screens/HomeScreen";
+import FriendListScreen from "../screens/FriendListScreen";
 import ChatListScreen from "../screens/ChatListScreen";
 import MyPageScreen from "../screens/MyPageScreen";
 import { getFriendRequests } from "../api/friends";
@@ -55,12 +56,22 @@ export default function MainTabNavigator() {
       />
       <Tab.Screen
         name="FriendList"
-        component={ChatListScreen}
+        component={FriendListScreen}
         listeners={{ focus: refreshBadge }}
+        options={{
+          tabBarLabel: "친구",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon emoji="👥" color={color} focused={focused} badge={friendRequestCount} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="ChatList"
+        component={ChatListScreen}
         options={{
           tabBarLabel: "채팅",
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon emoji="💬" color={color} focused={focused} badge={friendRequestCount} />
+            <TabIcon emoji="💬" color={color} focused={focused} />
           ),
         }}
       />
