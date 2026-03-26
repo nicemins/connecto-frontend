@@ -31,6 +31,7 @@ import {
   type PendingFriendRequest,
 } from "../api/friends";
 import { getSocket } from "../api/socket";
+import { useAuthStore } from "../store/authStore";
 
 type ChatListNavProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, "ChatList">,
@@ -159,8 +160,8 @@ export default function ChatListScreen() {
   const [showFriendPicker, setShowFriendPicker] = React.useState(false);
   const [showFriendManage, setShowFriendManage] = React.useState(false);
   const [processingId, setProcessingId] = React.useState<number | null>(null);
-  // 온라인 상태 맵 (friendId → isOnline)
-  const [onlineStatusMap, setOnlineStatusMap] = React.useState<Record<number, boolean>>({});
+  // 온라인 상태 — 전역 스토어에서 읽기 (useIncomingCall이 App.tsx 시점에서 friend:status-change 수집)
+  const onlineStatusMap = useAuthStore((s) => s.friendOnlineStatus);
   // 미읽 메시지 카운트 (roomId → count)
   const [unreadCounts, setUnreadCounts] = React.useState<Record<number, number>>({});
   const unreadLoadedRef = React.useRef(false);
@@ -252,20 +253,13 @@ export default function ChatListScreen() {
       }));
     };
 
-    // 온라인/오프라인 상태 실시간 반영
-    const handleStatusChange = (data: { friendId: number; isOnline: boolean }) => {
-      setOnlineStatusMap((prev) => ({ ...prev, [data.friendId]: data.isOnline }));
-    };
-
     const handleConnect = () => loadData();
 
     socket.on("chat:receive", handleReceive);
-    socket.on("friend:status-change", handleStatusChange);
     socket.on("connect", handleConnect);
 
     return () => {
       socket.off("chat:receive", handleReceive);
-      socket.off("friend:status-change", handleStatusChange);
       socket.off("connect", handleConnect);
     };
   }, [loadData]);

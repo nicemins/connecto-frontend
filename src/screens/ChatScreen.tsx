@@ -96,6 +96,17 @@ export default function ChatScreen() {
     loadMessages(0);
   }, [loadMessages]);
 
+  // 소켓 이벤트가 누락될 경우를 대비한 5초 폴링 fallback
+  // — pending 메시지가 없을 때만 실행 (전송 중 메시지 덮어쓰기 방지)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      if (pendingQueueRef.current.length === 0) {
+        loadMessages(0);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [loadMessages]);
+
   // M1: 새 메시지 추가(append)일 때만 맨 아래로 스크롤
   React.useEffect(() => {
     if (messages.length > 0 && isAppendingRef.current) {

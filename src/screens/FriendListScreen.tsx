@@ -32,6 +32,7 @@ import {
 } from "../api/friends";
 import { createChatRoom } from "../api/chat";
 import { getSocket } from "../api/socket";
+import { useAuthStore } from "../store/authStore";
 import type { Socket } from "socket.io-client";
 
 type FriendListScreenNavigationProp = CompositeNavigationProp<
@@ -46,7 +47,8 @@ export default function FriendListScreen() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [processingRequestId, setProcessingRequestId] = React.useState<number | null>(null);
   const [selectedFriend, setSelectedFriend] = React.useState<Friend | null>(null);
-  const [onlineStatusMap, setOnlineStatusMap] = React.useState<Record<number, boolean>>({});
+  // 전역 스토어에서 온라인 상태 읽기
+  const onlineStatusMap = useAuthStore((s) => s.friendOnlineStatus);
   const socketRef = React.useRef<Socket | null>(null);
 
   // 친구 목록 + 친구 요청 로드
@@ -71,23 +73,11 @@ export default function FriendListScreen() {
     loadData();
   }, [loadData]);
 
-  // Socket.io — friend:status-change (백엔드 구현 시 동작)
+  // socketRef 초기화 (call 이벤트 등 다른 핸들러에서 사용)
   React.useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
-
     socketRef.current = socket;
-
-    const handleStatusChange = (data: { friendId: number; isOnline: boolean }) => {
-      if (__DEV__) console.log("[FriendList] friend:status-change", data);
-      setOnlineStatusMap((prev) => ({ ...prev, [data.friendId]: data.isOnline }));
-    };
-
-    socket.on("friend:status-change", handleStatusChange);
-
-    return () => {
-      socket.off("friend:status-change", handleStatusChange);
-    };
   }, []);
 
   // 친구 요청 수락
