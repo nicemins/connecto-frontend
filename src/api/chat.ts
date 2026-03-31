@@ -7,6 +7,7 @@ export type ChatRoom = {
   friendProfileImageUrl: string | null;
   lastMessage: string | null;
   updatedAt: string;
+  unreadCount: number;
 };
 
 export type ChatMessage = {

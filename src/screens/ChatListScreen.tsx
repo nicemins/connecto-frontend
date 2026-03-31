@@ -14,7 +14,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -162,9 +161,6 @@ export default function ChatListScreen() {
   const [processingId, setProcessingId] = React.useState<number | null>(null);
   // 온라인 상태 — 전역 스토어에서 읽기 (useIncomingCall이 App.tsx 시점에서 friend:status-change 수집)
   const onlineStatusMap = useAuthStore((s) => s.friendOnlineStatus);
-  // 미읽 메시지 카운트 (roomId → count)
-  const [unreadCounts, setUnreadCounts] = React.useState<Record<number, number>>({});
-  const unreadLoadedRef = React.useRef(false);
   // 1분마다 시간 표시 갱신
   const [, setTick] = React.useState(0);
 
@@ -173,31 +169,6 @@ export default function ChatListScreen() {
     const id = setInterval(() => setTick((t) => t + 1), 60000);
     return () => clearInterval(id);
   }, []);
-
-  // 미읽 카운트 영속화 — 앱 시작 시 AsyncStorage에서 복원
-  React.useEffect(() => {
-    AsyncStorage.getItem("@chat_unread_counts")
-      .then((val) => {
-        if (val) {
-          try {
-            setUnreadCounts(JSON.parse(val));
-          } catch {}
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        unreadLoadedRef.current = true;
-      });
-  }, []);
-
-  // 미읽 카운트 변경 시 저장 (로드 완료 후에만)
-  React.useEffect(() => {
-    if (!unreadLoadedRef.current) return;
-    const nonZero = Object.fromEntries(
-      Object.entries(unreadCounts).filter(([, v]) => (v as number) > 0)
-    );
-    AsyncStorage.setItem("@chat_unread_counts", JSON.stringify(nonZero)).catch(() => {});
-  }, [unreadCounts]);
 
   const loadData = React.useCallback(async (isRefresh = false) => {
     if (!isRefresh) setIsLoading(true);
@@ -241,16 +212,16 @@ export default function ChatListScreen() {
         return [...prev]
           .map((room) =>
             room.roomId === data.roomId
-              ? { ...room, lastMessage: data.message.content, updatedAt: data.message.createdAt }
+              ? {
+                  ...room,
+                  lastMessage: data.message.content,
+                  updatedAt: data.message.createdAt,
+                  unreadCount: room.unreadCount + 1,
+                }
               : room
           )
           .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       });
-      // 미읽 카운트 증가
-      setUnreadCounts((prev) => ({
-        ...prev,
-        [data.roomId]: (prev[data.roomId] || 0) + 1,
-      }));
     };
 
     const handleConnect = () => loadData();
@@ -266,8 +237,10 @@ export default function ChatListScreen() {
 
   const handleOpenChat = React.useCallback(
     (room: ChatRoom) => {
-      // 채팅방 열면 미읽 카운트 초기화
-      setUnreadCounts((prev) => ({ ...prev, [room.roomId]: 0 }));
+      // 채팅방 열면 미읽 카운트 낙관적 초기화 (chat:join이 서버에서 읽음 처리)
+      setChatRooms((prev) =>
+        prev.map((r) => (r.roomId === room.roomId ? { ...r, unreadCount: 0 } : r))
+      );
       navigation.navigate("Chat", {
         roomId: room.roomId,
         friendNickname: room.friendNickname,
@@ -389,7 +362,7 @@ export default function ChatListScreen() {
   // ─── Render Helpers ─────────────────────────────────────────────
 
   const renderChatRoom = ({ item }: { item: ChatRoom }) => {
-    const unread = unreadCounts[item.roomId] || 0;
+    const unread = item.unreadCount ?? 0;
     // friendId 기반으로 온라인 상태 조회 (undefined = 한번도 status 수신 안 함 → 점 미표시)
     const isOnline = onlineStatusMap[item.friendId];
     return (
