@@ -262,7 +262,11 @@ export default function ChatScreen() {
     try {
       const sent = await sendChatImage(roomId, asset.uri);
       if (sent.id > latestIdRef.current) latestIdRef.current = sent.id;
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? sent : m)));
+      setMessages((prev) => {
+        // socket echo가 REST보다 먼저 도착한 경우 중복 방지
+        if (prev.some((m) => m.id === sent.id)) return prev.filter((m) => m.id !== tempId);
+        return prev.map((m) => (m.id === tempId ? sent : m));
+      });
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       Alert.alert("전송 실패", "이미지를 전송하지 못했습니다.");
