@@ -379,6 +379,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 | on | `chat:error` | `{ message: string }` | ✅ 2026-03-18 |
 | emit | `chat:typing` | `{ roomId: number }` — 입력 중 (1초 쓰로틀, 백엔드 디바운싱 없음) | ✅ 2026-03-25 |
 | on | `chat:typing` | `{ roomId: number }` — 상대방 입력 중 표시 (3초 후 자동 hide) | ✅ 2026-03-25 |
+| emit | `chat:read` | `{ roomId: number }` — 포커스 중 상대방 메시지 수신 시 읽음 처리 | ✅ 2026-03-31 |
+| on | `chat:read` | `{ roomId, readerId, lastReadMessageId }` — 상대방 읽음 수신 → `id <= lastReadMessageId` 내 메시지에 ✓✓ | ✅ 2026-03-31 |
 | on | `call:rejected` | `{ sessionId: number }` — 발신자 측 수신. 수신자가 거절 시 발신 화면 goBack() | ✅ 2026-03-26 |
 
 ---

@@ -61,6 +61,8 @@ export default function ChatScreen() {
   // 이미지 전송
   const [isImageSending, setIsImageSending] = React.useState(false);
   const isImageSendingRef = React.useRef(false);
+  // 상대방 마지막 읽음 메시지 ID (이하 내 메시지에 ✓✓ 표시)
+  const [partnerLastReadId, setPartnerLastReadId] = React.useState(-1);
   // 타이핑 인디케이터
   const [partnerTyping, setPartnerTyping] = React.useState(false);
   const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,6 +162,8 @@ export default function ChatScreen() {
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
+      // 채팅방 포커스 중 상대방 메시지 수신 → 읽음 처리 emit
+      socket.emit("chat:read", { roomId });
     };
 
     const handleError = (data: { message: string }) => {
@@ -181,15 +185,23 @@ export default function ChatScreen() {
       typingTimerRef.current = setTimeout(() => setPartnerTyping(false), 3000);
     };
 
+    // 읽음 표시 — 상대방이 내 메시지를 읽었을 때
+    const handleRead = (data: { roomId: number; readerId: number; lastReadMessageId: number }) => {
+      if (data.roomId !== roomId) return;
+      setPartnerLastReadId((prev) => Math.max(prev, data.lastReadMessageId));
+    };
+
     socket.on("chat:receive", handleReceive);
     socket.on("chat:error", handleError);
     socket.on("connect", handleReconnect);
     socket.on("chat:typing", handleTyping);
+    socket.on("chat:read", handleRead);
     return () => {
       socket.off("chat:receive", handleReceive);
       socket.off("chat:error", handleError);
       socket.off("connect", handleReconnect);
       socket.off("chat:typing", handleTyping);
+      socket.off("chat:read", handleRead);
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
   }, [roomId, myUserId, loadMessages]);
@@ -290,6 +302,7 @@ export default function ChatScreen() {
     const isMine = item.senderId === myUserId;
     const isPending = item.id < 0;
     const isImage = item.messageType === "IMAGE" || !!item.imageUrl;
+    const isRead = isMine && !isPending && item.id > 0 && partnerLastReadId >= item.id;
     return (
       <View style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}>
         <View style={[
@@ -313,7 +326,9 @@ export default function ChatScreen() {
             </Text>
           )}
           <Text style={styles.messageTime}>
-            {isPending ? "전송 중..." : new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+            {isPending
+              ? "전송 중..."
+              : `${new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}${isRead ? " ✓✓" : ""}`}
           </Text>
         </View>
       </View>
