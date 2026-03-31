@@ -163,7 +163,10 @@ export default function ChatScreen() {
         return [...prev, msg];
       });
       // 채팅방 포커스 중 상대방 메시지 수신 → 읽음 처리 emit
-      socket.emit("chat:read", { roomId });
+      // 상대방 메시지일 때만 읽음 emit (내 echo는 제외)
+      if (msg.senderId !== myUserId) {
+        socket.emit("chat:read", { roomId });
+      }
     };
 
     const handleError = (data: { message: string }) => {

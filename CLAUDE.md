@@ -319,7 +319,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 **GET /chat/rooms 응답:**
 ```typescript
-[{ roomId: number, friendId: number, friendNickname: string, friendProfileImageUrl: string | null, lastMessage: string | null, updatedAt: string }]
+[{ roomId: number, friendId: number, friendNickname: string, friendProfileImageUrl: string | null, lastMessage: string | null, unreadCount: number, updatedAt: string }]
 ```
 
 **GET /chat/rooms/{roomId}/messages 응답:**
