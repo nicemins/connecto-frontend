@@ -374,8 +374,8 @@ Stack (RootNavigator) — initialRoute: "Login"
 | emit | `chat:join` | `{ roomId: number }` — 채팅방 진입 시 룸 참가 (재연결 시 자동 재emit) | ✅ 2026-03-26 |
 | emit | `chat:leave` | `{ roomId: number }` — 채팅방 퇴장 시 룸 나가기 | ✅ 2026-03-26 |
 | emit | `chat:send` | `{ roomId: number, content: string }` | ✅ 2026-03-18 |
-| on | `chat:sent` | `{ roomId: number, message: ChatMessage }` — 서버 ACK, 발신자에게만. temp 메시지 즉시 교체 | ✅ 2026-03-25 |
-| on | `chat:receive` | `{ roomId: number, message: ChatMessage }` — 수신자 + 발신자 echo 모두. dedup 처리 | ✅ 2026-03-25 |
+| ~~on~~ | ~~`chat:sent`~~ | ~~서버 ACK, 발신자에게만~~ | ❌ 제거됨 (2026-03-31) — `chat:receive` 단일 이벤트로 통일 |
+| on | `chat:receive` | `{ roomId: number, message: ChatMessage }` — 발신자·수신자 모두 수신. `senderId === myUserId`로 내 메시지 구분. dedup 처리 | ✅ 2026-03-31 |
 | on | `chat:error` | `{ message: string }` | ✅ 2026-03-18 |
 | emit | `chat:typing` | `{ roomId: number }` — 입력 중 (1초 쓰로틀, 백엔드 디바운싱 없음) | ✅ 2026-03-25 |
 | on | `chat:typing` | `{ roomId: number }` — 상대방 입력 중 표시 (3초 후 자동 hide) | ✅ 2026-03-25 |
@@ -396,7 +396,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-26 (통화 거절 처리, ChatList 독립 탭, WebRTC offer 버퍼링 수정, 채팅 룸 기반 라우팅, 친구 온라인 상태 전역화)
+> **마지막 업데이트:** 2026-03-31 (chat:receive 단일 이벤트 전환 — chat:sent 핸들러 제거, 5초 fallback 제거)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -438,7 +438,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 친구 온라인 상태 표시 | `src/screens/FriendListScreen.tsx` | `friend:status-change` 소켓 수신 → `onlineStatusMap` 업데이트 → 아바타 초록 점 표시 |
 | 친구 신청 409 UX | `src/screens/MatchResultScreen.tsx` | DUPLICATE_FRIEND_REQUEST → "신청 완료" 표시, 이미 친구 → "친구로 연결됨" 전환 |
 | 인증서 피닝 인프라 (SEC-M6) | `android/app/src/main/res/xml/network_security_config.xml`, `android/app/src/debug/res/xml/network_security_config.xml` | Android Network Security Config. 릴리즈: `api.connecto.app`/`socket.connecto.app` 피닝. 디버그: 비활성화. 배포 전 SPKI 해시 교체 필요 |
-| 채팅 기능 | `src/screens/ChatListScreen.tsx`, `src/screens/ChatScreen.tsx`, `src/api/chat.ts` | 채팅방 목록, 실시간 채팅. 소켓 `chat:send`/`chat:receive`/`chat:sent` ACK. 폴링 제거 완료 (백엔드 echo 지원) |
+| 채팅 기능 | `src/screens/ChatListScreen.tsx`, `src/screens/ChatScreen.tsx`, `src/api/chat.ts` | 채팅방 목록, 실시간 채팅. 소켓 `chat:send` emit / `chat:receive` on (발신자 포함 룸 브로드캐스트). 폴링 제거 완료 |
 | socket.ts 안정성 개선 | `src/api/socket.ts` | `getSocket()` — reconnection 중 `removeAllListeners()` 후 새 인스턴스 생성하던 버그 수정. `socketInstance === null` 일 때만 생성, 재연결은 Socket.IO 내장 메커니즘에 위임 |
 | 채팅 "전송 중..." 버그 수정 | `src/screens/ChatScreen.tsx` | 백엔드가 sender에게 chat:receive echo 미전송 → 폴링에서 pendingQueue content 매칭으로 temp 메시지 교체 (2026-03-24) |
 | ChatListScreen UX 개선 | `src/screens/ChatListScreen.tsx` | 미읽 메시지 뱃지(숫자), 실시간 시간 표시(1분 interval), 온라인/오프라인 점(Discord 스타일), -1일전 버그 수정(서버/클라이언트 시계 오차 대응) (2026-03-24) |
@@ -446,7 +446,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 채팅 타이핑 인디케이터 | `src/screens/ChatScreen.tsx` | `chat:typing` emit(1초 쓰로틀) + on 핸들러(3초 hide) + UI. 백엔드 relay ✅ 완료 (2026-03-25) |
 | 채팅 폴링 제거 | `src/screens/ChatScreen.tsx` | 백엔드 sender echo 완료로 4초 폴링 useEffect 삭제, AppState import 제거 (2026-03-25) |
 | 채팅 이미지 전송 | `src/screens/ChatScreen.tsx`, `src/api/chat.ts` | expo-image-picker, 5MB 제한, temp 버블 + 로딩 overlay, echo dedup, 📷 버튼 UI (2026-03-25) |
-| chat:sent ACK 처리 | `src/screens/ChatScreen.tsx` | 서버 ACK 수신 시 temp 메시지 즉시 교체. 이후 chat:receive echo는 dedup 자동 스킵 (2026-03-25) |
+| ~~chat:sent ACK 처리~~ | ~~`src/screens/ChatScreen.tsx`~~ | ~~서버 ACK 수신 시 temp 메시지 즉시 교체~~ → ❌ chat:sent 핸들러 제거 완료 (2026-03-31) — chat:receive 단일 이벤트로 통일 |
 | 차단 목록 UI | `src/screens/BlockListScreen.tsx`, `src/api/friends.ts` | GET /users/me/blocks 연동, FlatList + 차단 해제 Alert, 빈 상태 처리, MyPage 진입점 (2026-03-25) |
 | 통화 거절 처리 | `src/api/call.ts`, `src/components/IncomingCallModal.tsx`, `src/screens/CallScreen.tsx` | 수신자: 거절 버튼 → POST /call/reject/{sessionId} (fire-and-forget). 발신자: call:rejected 소켓 수신 → goBack() (2026-03-26) |
 | ChatList 독립 탭 | `src/navigation/MainTabNavigator.tsx`, `src/navigation/types.ts`, `src/screens/ChatListScreen.tsx` | 탭 구조 4개로 확장: Home → FriendList → ChatList → MyPage. ChatList 탭 분리 (2026-03-26) |

@@ -173,25 +173,6 @@ export default function ChatScreen() {
       loadMessages(0);
     };
 
-    // chat:sent — 서버 ACK (chat:receive echo보다 먼저 도착, temp 메시지 즉시 교체)
-    const handleSent = (data: { roomId: number; message: ChatMessage }) => {
-      if (data.roomId !== roomId) return;
-      const msg = data.message;
-      const idx = pendingQueueRef.current.findIndex(
-        (p) => p.content === msg.content && Date.now() - p.time < 10000
-      );
-      if (idx === -1) return;
-      const { tempId } = pendingQueueRef.current[idx];
-      pendingQueueRef.current.splice(idx, 1);
-      if (pendingQueueRef.current.length === 0) {
-        isSendingRef.current = false;
-        setIsSending(false);
-      }
-      if (msg.id > latestIdRef.current) latestIdRef.current = msg.id;
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? msg : m)));
-      // 이후 도착하는 chat:receive echo는 dedup(id 중복)으로 자동 스킵
-    };
-
     // 타이핑 인디케이터 — 상대방 입력 중 표시
     const handleTyping = (data: { roomId: number }) => {
       if (data.roomId !== roomId) return;
@@ -201,13 +182,11 @@ export default function ChatScreen() {
     };
 
     socket.on("chat:receive", handleReceive);
-    socket.on("chat:sent", handleSent);
     socket.on("chat:error", handleError);
     socket.on("connect", handleReconnect);
     socket.on("chat:typing", handleTyping);
     return () => {
       socket.off("chat:receive", handleReceive);
-      socket.off("chat:sent", handleSent);
       socket.off("chat:error", handleError);
       socket.off("connect", handleReconnect);
       socket.off("chat:typing", handleTyping);
