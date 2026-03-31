@@ -392,13 +392,13 @@ Stack (RootNavigator) — initialRoute: "Login"
 3. **WebRTC 통화:** `webrtc:join` → isOfferer가 offer 생성 → ICE 교환 → 5분 통화 → `POST /call/end` → MatchResultScreen
 4. **통화 결과:** 상대 프로필 조회 / 친구 신청(`POST /friends/request`) / 재연결(`POST /call/again`)
 5. **친구 관리:** 친구 목록(`GET /friends`) / 요청 수락·거절(`PATCH /friends/request/{id}/accept|reject`) / 친구 통화(`POST /call/request/{friendId}`) → `{ sessionId, webrtcChannelId }` → CallScreen(isOfferer: true)
-6. **채팅:** `POST /chat/rooms` (채팅방 생성/조회) → `socket.emit("chat:join", { roomId })` → `socket.emit("chat:send", { roomId, content })` → `chat:receive { roomId, message }` 실시간 수신. 룸 기반 라우팅 (재연결에도 안정적). 퇴장 시 `socket.emit("chat:leave", { roomId })`
+6. **채팅:** `POST /chat/rooms` (채팅방 생성/조회) → `socket.emit("chat:join", { roomId })` (서버 자동 읽음 처리) → `socket.emit("chat:send", { roomId, content })` → `chat:receive { roomId, message }` 실시간 수신 (발신자 포함 룸 브로드캐스트, `senderId === myUserId`로 echo 구분). 상대방 메시지 수신 시 `socket.emit("chat:read", { roomId })` → 상대방 `chat:read` 수신 시 ✓✓ 표시. 퇴장 시 `socket.emit("chat:leave", { roomId })`
 
 ---
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-31 (chat:receive 단일 이벤트 전환 — chat:sent 핸들러 제거, 5초 fallback 제거)
+> **마지막 업데이트:** 2026-03-31 (chat:receive 단일 이벤트, 이미지 dedup, unreadCount 서버 기반, chat:read 읽음 표시 ✓✓)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -455,6 +455,10 @@ Stack (RootNavigator) — initialRoute: "Login"
 | WebRTC offer 버퍼링 수정 | `src/hooks/useWebRTC.ts` | webrtc:offer 리스너를 PC 초기화 전 즉시 등록. PC 준비 전 도착한 offer를 pendingOfferRef에 버퍼링 후 처리 (2026-03-26) |
 | 채팅 소켓 연결 검증 | `src/screens/ChatScreen.tsx` | socket.connected 체크 추가. 연결 끊긴 상태에서 전송 시도 시 Alert 표시 (2026-03-26) |
 | 채팅 룸 기반 라우팅 | `src/screens/ChatScreen.tsx` | chat:join emit (마운트 시), chat:leave emit (언마운트 시), 재연결 시 자동 rejoin. 백엔드 userId→socketId stale 맵 문제 해결 (2026-03-26) |
+| chat:receive 단일 이벤트 전환 | `src/screens/ChatScreen.tsx` | chat:sent 핸들러 제거, 5초 fallback 제거. handleReceive에서 `senderId === myUserId`로 내 echo 처리 통일 (2026-03-31) |
+| 이미지 중복 렌더링 수정 | `src/screens/ChatScreen.tsx` | socket echo → REST 201 순서 도착 시 tempId filter로 중복 방지. `prev.some(m => m.id === sent.id)` 체크 (2026-03-31) |
+| 채팅 unreadCount 서버 기반 전환 | `src/screens/ChatListScreen.tsx`, `src/api/chat.ts` | `ChatRoom.unreadCount` 서버 제공값 사용. AsyncStorage 로컬 추적 제거. chat:receive 시 room.unreadCount+1 직접 업데이트 (2026-03-31) |
+| 채팅 읽음 표시 (chat:read) | `src/screens/ChatScreen.tsx` | emit: 상대방 메시지 수신 시 `chat:read { roomId }`. on: `partnerLastReadId` 추적 → `id <= partnerLastReadId` 내 메시지에 ✓✓ 표시 (2026-03-31) |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 
@@ -477,7 +481,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 | 우선순위 | 항목 | 파일 | 설명 |
 |---------|------|------|------|
-| ~~🔴 High~~ ✅ | 채팅 미읽 카운트 영속화 | `ChatListScreen.tsx` | ✅ 완료 (2026-03-25) — AsyncStorage(`@chat_unread_counts`) 영속화. 앱 재시작 후 미읽 카운트 유지 |
+| ~~🔴 High~~ ✅ | 채팅 미읽 카운트 영속화 | `ChatListScreen.tsx` | ✅ → 서버 기반으로 대체 (2026-03-31) — `GET /chat/rooms` 응답의 `unreadCount` 사용. AsyncStorage 제거 |
 | ~~🔴 High~~ ✅ | 채팅 echo 미수신 | `ChatScreen.tsx` | ✅ 완료 (2026-03-25) — 백엔드 sender echo 추가. 4초 폴링 제거, AppState import 정리 |
 | ~~🟡 Medium~~ ✅ | 친구 온라인 초기 상태 미조회 | `ChatListScreen.tsx`, `FriendListScreen.tsx` | ✅ 백엔드 완료 (2026-03-25) — 소켓 connect 시 서버가 `friend:status-change` 자동 push. 프론트 추가 작업 없음 |
 | ~~🟡 Medium~~ ✅ | 채팅 타이핑 인디케이터 없음 | `ChatScreen.tsx` | ✅ 완료 (2026-03-25) — 프론트: emit 1초 쓰로틀 + 3초 hide. 백엔드: relay 완료 |
