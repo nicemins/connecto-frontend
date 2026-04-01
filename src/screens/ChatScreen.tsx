@@ -137,7 +137,7 @@ export default function ChatScreen() {
       // C3: 내 echo — pendingQueue에서 같은 content의 첫 번째 항목을 tempId로 교체
       if (msg.senderId === myUserId) {
         const idx = pendingQueueRef.current.findIndex(
-          (p) => p.content === msg.content && Date.now() - p.time < 10000
+          (p) => p.content === msg.content && Date.now() - p.time < 15000
         );
         if (idx !== -1) {
           const { tempId } = pendingQueueRef.current[idx];
@@ -240,7 +240,20 @@ export default function ChatScreen() {
     setInput("");
 
     socket.emit("chat:send", { roomId, content: trimmed });
-  }, [input, myUserId, roomId]);
+
+    // 15초 후에도 echo 미수신 시 서버 상태로 강제 갱신 (전송 중... 영구 고착 방지)
+    setTimeout(() => {
+      const stillPending = pendingQueueRef.current.some((p) => p.tempId === tempId);
+      if (stillPending) {
+        pendingQueueRef.current = pendingQueueRef.current.filter((p) => p.tempId !== tempId);
+        if (pendingQueueRef.current.length === 0) {
+          isSendingRef.current = false;
+          setIsSending(false);
+        }
+        loadMessages(0);
+      }
+    }, 15000);
+  }, [input, myUserId, roomId, loadMessages]);
 
   // 이미지 전송
   const handleSendImage = React.useCallback(async () => {
