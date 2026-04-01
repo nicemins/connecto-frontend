@@ -103,8 +103,9 @@ export default function CallScreen() {
         await endCall(sessionId, reason);
       } catch (e: any) {
         // 403 ACCESS_DENIED = 상대방이 먼저 종료 → 세션은 ENDED, 정상 진행
+        // 409 INVALID_SESSION_STATE = 이미 종료된 세션 → 동일하게 MatchResult로 이동
         const status = e?.response?.status ?? e?.status;
-        if (status !== 403) {
+        if (status !== 403 && status !== 409) {
           console.error("endCall error:", e);
           Alert.alert("오류", "통화 종료 중 오류가 발생했습니다.");
           isEndingRef.current = false;
@@ -152,6 +153,30 @@ export default function CallScreen() {
       socket.off("call:ended", handleRemoteEnded);
     };
   }, [sessionId]);
+
+  // call:rejected 소켓 수신 — 수신자가 거절 시 발신 화면 종료
+  React.useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleRejected = (data: { sessionId: number }) => {
+      if (data.sessionId === sessionId) {
+        if (__DEV__) console.log("[CallScreen] call:rejected received");
+        if (isEndingRef.current) return;
+        isEndingRef.current = true;
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+        navigation.goBack();
+      }
+    };
+
+    socket.on("call:rejected", handleRejected);
+    return () => {
+      socket.off("call:rejected", handleRejected);
+    };
+  }, [sessionId, navigation]);
 
   // 타이머가 00:00이 되었을 때 자동으로 종료 처리
   React.useEffect(() => {

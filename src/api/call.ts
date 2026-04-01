@@ -23,6 +23,17 @@ export async function endCall(sessionId: number, reason?: string) {
 }
 
 /**
+ * 친구 통화 거절
+ * POST /call/reject/{sessionId}
+ */
+export async function rejectCall(sessionId: number) {
+  const { data } = await apiClient.post<{ success: boolean }>(
+    `/call/reject/${sessionId}`
+  );
+  return data;
+}
+
+/**
  * 재연결 의사 표현
  * POST /call/again
  */

@@ -11,9 +11,12 @@ interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
   me: UserMeResponse | null;
+  // 전역 친구 온라인 상태 — useIncomingCall에서 초기 push 이벤트 수신 후 저장
+  friendOnlineStatus: Record<number, boolean>;
   setAccessToken: (token: string | null) => void;
   setRefreshToken: (token: string | null) => void;
   setMe: (me: UserMeResponse | null) => void;
+  updateFriendOnline: (friendId: number, isOnline: boolean) => void;
   persistTokens: (accessToken: string, refreshToken?: string | null) => Promise<void>;
   loadTokens: () => Promise<{ accessToken: string | null; refreshToken: string | null }>;
   logout: () => Promise<void>;
@@ -23,10 +26,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   refreshToken: null,
   me: null,
+  friendOnlineStatus: {},
 
   setAccessToken: (token) => set({ accessToken: token }),
   setRefreshToken: (token) => set({ refreshToken: token }),
   setMe: (me) => set({ me }),
+  updateFriendOnline: (friendId, isOnline) =>
+    set((prev) => ({ friendOnlineStatus: { ...prev.friendOnlineStatus, [friendId]: isOnline } })),
 
   persistTokens: async (accessToken, refreshToken) => {
     set({ accessToken, ...(refreshToken !== undefined && { refreshToken }) });

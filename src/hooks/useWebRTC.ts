@@ -67,6 +67,7 @@ export function useWebRTC({
   const isOffererRef = useRef<boolean>(false);
   const isInitializedRef = useRef<boolean>(false);
   const wasConnectedRef = useRef<boolean>(false); // ICE 한 번이라도 연결된 적 있는지
+  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null); // PC 준비 전 도착한 offer 버퍼
 
   // STUN only fallback (API 실패 시)
   const STUN_ONLY = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
@@ -253,14 +254,13 @@ export function useWebRTC({
       // 통화 채널 룸 진입 (시그널링 라우팅을 위해 join 먼저)
       socket.emit("webrtc:join", { channelId: webrtcChannelId, sessionId });
 
-      // PeerConnection 초기화 (await: TURN 자격증명 조회 포함)
-      await initializePeerConnection();
-
-      // 로컬 스트림 초기화
-      await initializeLocalStream();
-
-      // Socket 이벤트 리스너 등록
+      // webrtc:offer 리스너를 join 직후 즉시 등록 — PC 준비 전 offer 도착 시 버퍼에 저장
       socket.on("webrtc:offer", async (data: { sdp: RTCSessionDescriptionInit; from?: string }) => {
+        if (!peerConnectionRef.current) {
+          if (__DEV__) console.log("[WebRTC] offer arrived before PC ready, buffering...");
+          pendingOfferRef.current = data.sdp;
+          return;
+        }
         try {
           await createAnswer(data.sdp);
         } catch (error) {
@@ -271,6 +271,23 @@ export function useWebRTC({
           }));
         }
       });
+
+      // PeerConnection 초기화 (await: TURN 자격증명 조회 포함)
+      await initializePeerConnection();
+
+      // 로컬 스트림 초기화
+      await initializeLocalStream();
+
+      // PC 준비 완료 후 버퍼된 offer 처리
+      if (pendingOfferRef.current) {
+        if (__DEV__) console.log("[WebRTC] Processing buffered offer...");
+        try {
+          await createAnswer(pendingOfferRef.current);
+        } catch (error) {
+          if (__DEV__) console.error("Error handling buffered offer:", error);
+        }
+        pendingOfferRef.current = null;
+      }
 
       socket.on("webrtc:answer", async (data: { sdp: RTCSessionDescriptionInit; from?: string }) => {
         if (peerConnectionRef.current) {
