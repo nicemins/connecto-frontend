@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/types";
 import { getChatMessages, sendChatImage, type ChatMessage } from "../api/chat";
@@ -107,21 +107,31 @@ export default function ChatScreen() {
   }, [messages.length]);
 
   // chat:join — 채팅방 진입 시 소켓 룸에 참가
-  // userId 기반 직접 emit은 소켓 재연결 시 맵이 stale해져 메시지 누락 발생.
-  // 룸 기반 라우팅은 소켓 ID가 바뀌어도 roomId로 찾으므로 재연결에도 안정적.
-  // 백엔드가 chat:join 수신 시 socket.join("chat:" + roomId) 처리 필요.
+  // useFocusEffect: 화면 포커스될 때마다 chat:join 재emit + 메시지 갱신
+  // (다른 탭/화면에서 돌아올 때 소켓 룸이 끊겨 실시간 메시지 누락 방지)
+  useFocusEffect(
+    React.useCallback(() => {
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("chat:join", { roomId });
+      }
+      loadMessages(0);
+
+      return () => {
+        const s = getSocket();
+        if (s) s.emit("chat:leave", { roomId });
+      };
+    }, [roomId, loadMessages])
+  );
+
   React.useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
-    socket.emit("chat:join", { roomId });
-
-    // 재연결 시에도 룸 재참가
+    // 소켓 재연결 시 룸 재참가
     const handleReconnect = () => socket.emit("chat:join", { roomId });
     socket.on("connect", handleReconnect);
     return () => {
       socket.off("connect", handleReconnect);
-      // 채팅방 나갈 때 룸에서 퇴장 (백엔드 메모리 정리)
-      socket.emit("chat:leave", { roomId });
     };
   }, [roomId]);
 
