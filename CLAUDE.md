@@ -398,7 +398,7 @@ Stack (RootNavigator) — initialRoute: "Login"
 
 ## 9. 구현 현황 (항상 최신 유지)
 
-> **마지막 업데이트:** 2026-03-31 (chat:receive 단일 이벤트, 이미지 dedup, unreadCount 서버 기반, chat:read 읽음 표시 ✓✓)
+> **마지막 업데이트:** 2026-04-03 (채팅 탭 전환 후 실시간 누락 버그 수정, 초기 스크롤 수정, 중복 API 호출 제거)
 > 기능 개발 완료 시 이 섹션을 반드시 업데이트할 것.
 
 ### 프론트엔드 완료 ✅
@@ -459,6 +459,9 @@ Stack (RootNavigator) — initialRoute: "Login"
 | 이미지 중복 렌더링 수정 | `src/screens/ChatScreen.tsx` | socket echo → REST 201 순서 도착 시 tempId filter로 중복 방지. `prev.some(m => m.id === sent.id)` 체크 (2026-03-31) |
 | 채팅 unreadCount 서버 기반 전환 | `src/screens/ChatListScreen.tsx`, `src/api/chat.ts` | `ChatRoom.unreadCount` 서버 제공값 사용. AsyncStorage 로컬 추적 제거. chat:receive 시 room.unreadCount+1 직접 업데이트 (2026-03-31) |
 | 채팅 읽음 표시 (chat:read) | `src/screens/ChatScreen.tsx` | emit: 상대방 메시지 수신 시 `chat:read { roomId }`. on: `partnerLastReadId` 추적 → `id <= partnerLastReadId` 내 메시지에 ✓✓ 표시 (2026-03-31) |
+| 채팅 탭 전환 후 실시간 누락 수정 | `src/screens/ChatScreen.tsx` | `useEffect` → `useFocusEffect`로 교체. 화면 포커스될 때마다 `chat:join` 재emit + 메시지 갱신. 탭 전환 후 소켓 룸 재참가 보장 (2026-04-03) |
+| 채팅 초기 스크롤 수정 | `src/screens/ChatScreen.tsx` | `loadMessages(page=0)` 완료 시 `isAppendingRef=true` 설정 → 첫 진입 시 맨 아래 스크롤 정상 동작 (2026-04-03) |
+| 채팅 중복 API 호출 제거 | `src/screens/ChatScreen.tsx` | mount 시 `useEffect` + `useFocusEffect` 둘 다 `loadMessages(0)` 호출하던 중복 제거. `useFocusEffect` 단일 진입점으로 통일 (2026-04-03) |
 
 ### 코드 품질 규칙 (app-quality 2026-03-09 적용)
 
