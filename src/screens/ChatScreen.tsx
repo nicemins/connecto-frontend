@@ -75,6 +75,7 @@ export default function ChatScreen() {
       const res = await getChatMessages(roomId, pageNum, 50);
       const sorted = res.messages.reverse();
       if (pageNum === 0) {
+        isAppendingRef.current = true; // 초기 로드 후 맨 아래 스크롤
         setMessages(sorted);
         if (sorted.length > 0) {
           latestIdRef.current = sorted[sorted.length - 1].id;
@@ -92,11 +93,6 @@ export default function ChatScreen() {
     }
   }, [roomId]);
 
-
-  // 초기 로드
-  React.useEffect(() => {
-    loadMessages(0);
-  }, [loadMessages]);
 
   // M1: 새 메시지 추가(append)일 때만 맨 아래로 스크롤
   React.useEffect(() => {
