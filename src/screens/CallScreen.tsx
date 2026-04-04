@@ -279,10 +279,24 @@ export default function CallScreen() {
   const isLocked = elapsed < LOCK_SECONDS;
   const lockRemaining = LOCK_SECONDS - elapsed;
 
+  // 타이머 긴박감 — 남은 시간에 따라 색상 단계 변화
+  const timerUrgency =
+    secondsLeft <= 30 ? "critical" :
+    secondsLeft <= 60 ? "warning" : "normal";
+  const timerColor =
+    timerUrgency === "critical" ? "#FF4444" :
+    timerUrgency === "warning"  ? "#FF9500" : "#fff";
+  const bgColors: [string, string, ...string[]] =
+    timerUrgency === "critical"
+      ? ["#7F0000", "#B91C1C", "#312E81", "#1E3A8A", "#1E40AF"]
+      : timerUrgency === "warning"
+      ? ["#7C2D12", "#9A3412", "#312E81", "#1E3A8A", "#1E40AF"]
+      : ["#4C1D95", "#5B21B6", "#312E81", "#1E3A8A", "#1E40AF"];
+
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={["#4C1D95", "#5B21B6", "#312E81", "#1E3A8A", "#1E40AF"]}
+        colors={bgColors}
         locations={[0, 0.25, 0.5, 0.75, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -290,7 +304,7 @@ export default function CallScreen() {
 
         {/* 상단: 타이머 + 연결 상태 */}
         <View style={styles.header}>
-          <Text style={styles.timer}>{formatTime(secondsLeft)}</Text>
+          <Text style={[styles.timer, { color: timerColor }]}>{formatTime(secondsLeft)}</Text>
 
           {/* 연결 상태 pill */}
           <View style={[styles.statusPill, isConnected ? styles.statusConnected : styles.statusConnecting]}>
