@@ -220,7 +220,7 @@ export default function FriendListScreen() {
     const isOnline = onlineStatusMap[friend.userId] ?? false;
     return (
     <Pressable
-      className="mb-4 mx-4 p-4 rounded-2xl bg-white/10 border border-white/20 active:opacity-80"
+      style={[styles.friendCard, isOnline && styles.friendCardOnline]}
       onPress={() => handleFriendProfilePress(friend)}
       onLongPress={() => {
         Alert.alert(friend.nickname ?? "친구", "", [
@@ -506,9 +506,20 @@ export default function FriendListScreen() {
         {/* 헤더 */}
         <View className="px-4 pt-6 pb-4 flex-row items-center justify-between">
           <Text className="text-3xl font-bold text-white">친구 목록</Text>
-          {friends.length > 0 && (
-            <Text className="text-sm text-white/50">{friends.length}명</Text>
-          )}
+          <View className="flex-row items-center gap-3">
+            {(() => {
+              const onlineCount = friends.filter((f) => onlineStatusMap[f.userId]).length;
+              return onlineCount > 0 ? (
+                <View className="flex-row items-center gap-1 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-500/40">
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "#22C55E" }} />
+                  <Text className="text-xs text-green-400 font-semibold">{onlineCount}명 온라인</Text>
+                </View>
+              ) : null;
+            })()}
+            {friends.length > 0 && (
+              <Text className="text-sm text-white/50">{friends.length}명</Text>
+            )}
+          </View>
         </View>
 
         <FlatList
@@ -551,6 +562,19 @@ export default function FriendListScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  friendCard: {
+    marginBottom: 12,
+    marginHorizontal: 16,
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  friendCardOnline: {
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderColor: "rgba(139,92,246,0.35)",
+  },
   listContainer: {
     paddingTop: 8,
     paddingBottom: 20,

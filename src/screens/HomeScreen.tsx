@@ -6,6 +6,7 @@ import {
   useWindowDimensions,
   StyleSheet,
   Image,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
@@ -47,6 +48,23 @@ export default function HomeScreen() {
     es: "🇪🇸", fr: "🇫🇷", de: "🇩🇪",
   };
 
+  const floatAnim = React.useRef(new Animated.Value(0)).current;
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, { toValue: -10, duration: 2000, useNativeDriver: true }),
+        Animated.timing(floatAnim, { toValue: 0, duration: 2000, useNativeDriver: true }),
+      ])
+    ).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.05, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [floatAnim, pulseAnim]);
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -87,6 +105,7 @@ export default function HomeScreen() {
           </View>
 
           {/* 중앙: 메인 프로필 이미지 */}
+          <Animated.View style={{ transform: [{ translateY: floatAnim }] }}>
           <Pressable
             onPress={handleGoToMyPage}
             className="mb-12 items-center"
@@ -133,8 +152,10 @@ export default function HomeScreen() {
               )}
             </View>
           </Pressable>
+          </Animated.View>
 
           {/* 하단: Find Partner 버튼 */}
+          <Animated.View style={{ transform: [{ scale: pulseAnim }], width: "100%" }}>
           <Pressable
             onPress={handleFindPartner}
             className="h-14 w-full items-center justify-center rounded-2xl"
@@ -148,6 +169,7 @@ export default function HomeScreen() {
             />
             <Text className="text-lg font-semibold text-white">Find Partner</Text>
           </Pressable>
+          </Animated.View>
 
         </View>
       </SafeAreaView>

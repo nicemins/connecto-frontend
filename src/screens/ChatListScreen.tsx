@@ -422,7 +422,17 @@ export default function ChatListScreen() {
       <LinearGradient colors={["#10101E", "#16213E"]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>채팅</Text>
+          <View style={styles.headerTitleRow}>
+            <Text style={styles.headerTitle}>채팅</Text>
+            {(() => {
+              const totalUnread = chatRooms.reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
+              return totalUnread > 0 ? (
+                <View style={styles.headerUnreadBadge}>
+                  <Text style={styles.headerUnreadText}>{totalUnread > 99 ? "99+" : totalUnread}</Text>
+                </View>
+              ) : null;
+            })()}
+          </View>
           <View style={styles.headerActions}>
             <Pressable onPress={() => setShowFriendManage(true)} style={styles.headerBtn}>
               <Text style={styles.headerBtnIcon}>👥</Text>
@@ -593,7 +603,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "700" },
+  headerUnreadBadge: {
+    backgroundColor: "#8B5CF6",
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  headerUnreadText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   headerActions: { flexDirection: "row", gap: 4 },
   headerBtn: { padding: 8 },
   headerBtnIcon: { fontSize: 20 },

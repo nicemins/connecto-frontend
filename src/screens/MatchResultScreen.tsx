@@ -9,6 +9,7 @@ import {
   ScrollView,
   Modal,
   Image,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -59,6 +60,27 @@ export default function MatchResultScreen() {
   const [isReporting, setIsReporting] = React.useState(false);
   const [showProfileModal, setShowProfileModal] = React.useState(false);
   const [profileLoadFailed, setProfileLoadFailed] = React.useState(false);
+
+  const enterAnim = React.useRef(new Animated.Value(0)).current;
+  const celebAnim = React.useRef(new Animated.Value(1)).current;
+
+  React.useEffect(() => {
+    Animated.spring(enterAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 55,
+      friction: 9,
+    }).start();
+  }, [enterAnim]);
+
+  React.useEffect(() => {
+    if (friendRequestStatus === "mutual") {
+      Animated.sequence([
+        Animated.timing(celebAnim, { toValue: 1.18, duration: 180, useNativeDriver: true }),
+        Animated.spring(celebAnim, { toValue: 1, useNativeDriver: true, tension: 200, friction: 8 }),
+      ]).start();
+    }
+  }, [friendRequestStatus, celebAnim]);
 
   const loadPartnerProfile = React.useCallback(() => {
     setProfileLoadFailed(false);
@@ -219,7 +241,16 @@ export default function MatchResultScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* 중앙: 통화 시간 서클 UI 및 캐릭터 */}
-          <View className="items-center mb-8">
+          <Animated.View
+            className="items-center mb-8"
+            style={{
+              opacity: enterAnim,
+              transform: [
+                { translateY: enterAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) },
+                { scale: enterAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) },
+              ],
+            }}
+          >
             {/* 통화 시간 서클 */}
             <View
               style={[
@@ -275,7 +306,7 @@ export default function MatchResultScreen() {
                 colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
               />
             </View>
-          </View>
+          </Animated.View>
 
           {/* 친구 신청 섹션 */}
           <View className="mb-6 px-6">
@@ -284,7 +315,7 @@ export default function MatchResultScreen() {
             </Text>
 
             {friendRequestStatus === "mutual" ? (
-              <View className="items-center">
+              <Animated.View className="items-center" style={{ transform: [{ scale: celebAnim }] }}>
                 <View className="mb-4 w-full px-4 py-4 rounded-2xl bg-green-500/20 border-2 border-green-400 items-center">
                   <Text className="text-xl mb-1">🎉</Text>
                   <Text className="text-base font-bold text-green-200 text-center">
@@ -302,7 +333,7 @@ export default function MatchResultScreen() {
                     프로필 보기
                   </Text>
                 </Pressable>
-              </View>
+              </Animated.View>
             ) : friendRequestStatus === "requested" ? (
               <View className="w-full px-4 py-4 rounded-2xl bg-white/10 border border-white/20 items-center">
                 <Text className="text-base font-semibold text-white/80 text-center">
