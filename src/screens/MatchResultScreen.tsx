@@ -17,6 +17,7 @@ import type { RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { requestFriend, checkFriendStatus } from "../api/friends";
+import { createChatRoom } from "../api/chat";
 import { reportUser } from "../api/report";
 import { callAgain } from "../api/call";
 import { getMatchResult, type MatchResultData } from "../api/match";
@@ -236,24 +237,34 @@ export default function MatchResultScreen() {
                 className="rounded-full"
               />
               <View className="items-center justify-center flex-1">
-                <Text className="text-5xl font-bold text-white mb-2">
+                <Text className="text-3xl mb-1">✨</Text>
+                <Text className="text-5xl font-bold text-white mb-1">
                   {totalTime}
                 </Text>
-                <Text className="text-base text-white/80">통화 시간</Text>
+                <Text className="text-sm text-white/60 tracking-widest uppercase">통화 완료</Text>
               </View>
             </View>
 
             {/* 문구 */}
-            <View className="mt-6"
-            >
+            <View className="mt-6">
               {partnerNickname ? (
-                <Text className="text-2xl font-bold text-white text-center px-4">
-                  {partnerNickname}님과의 대화가 즐거웠나요?
-                </Text>
+                <>
+                  <Text className="text-2xl font-bold text-white text-center px-4">
+                    {partnerNickname}님과의 대화
+                  </Text>
+                  <Text className="text-base text-white/60 text-center mt-1">
+                    즐거우셨나요? 🎙️
+                  </Text>
+                </>
               ) : (
-                <Text className="text-2xl font-bold text-white text-center px-4">
-                  {totalTime} 동안의 대화가 즐거웠나요?
-                </Text>
+                <>
+                  <Text className="text-2xl font-bold text-white text-center px-4">
+                    {totalTime} 동안의 대화
+                  </Text>
+                  <Text className="text-base text-white/60 text-center mt-1">
+                    즐거우셨나요? 🎙️
+                  </Text>
+                </>
               )}
             </View>
 
@@ -419,6 +430,28 @@ export default function MatchResultScreen() {
             <Text className="text-sm text-white/70 text-center px-6 mb-6">
               {partnerProfile?.profile?.bio ?? "소개가 없습니다"}
             </Text>
+
+            {/* 채팅하기 버튼 (친구가 된 경우) */}
+            {friendRequestStatus === "mutual" && resolvedPartnerNumericId && (
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const room = await createChatRoom(resolvedPartnerNumericId);
+                    setShowProfileModal(false);
+                    navigation.replace("Chat" as never, {
+                      roomId: room.roomId,
+                      friendNickname: partnerProfile?.profile?.nickname ?? "상대방",
+                      friendProfileImageUrl: partnerProfile?.profile?.profileImageUrl ?? undefined,
+                    } as never);
+                  } catch {
+                    Alert.alert("오류", "채팅방을 열 수 없습니다.");
+                  }
+                }}
+                className="mx-6 h-12 items-center justify-center rounded-2xl bg-purple-500 mb-3"
+              >
+                <Text className="text-base font-semibold text-white">💬  채팅하기</Text>
+              </Pressable>
+            )}
 
             {/* 닫기 버튼 */}
             <Pressable

@@ -39,7 +39,13 @@ export default function HomeScreen() {
   };
 
   const nativeLang = me?.languages?.find((l) => l.type === "NATIVE")?.languageCode ?? null;
+  const learningLang = me?.languages?.find((l) => l.type === "LEARNING")?.languageCode ?? null;
   const profileImageUrl = me?.profile?.profileImageUrl ?? null;
+
+  const langFlag: Record<string, string> = {
+    ko: "🇰🇷", en: "🇺🇸", ja: "🇯🇵", zh: "🇨🇳",
+    es: "🇪🇸", fr: "🇫🇷", de: "🇩🇪",
+  };
 
   return (
     <View style={styles.root}>
@@ -50,10 +56,33 @@ export default function HomeScreen() {
       />
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         <View className="flex-1 items-center justify-center px-6">
-          {/* 상단: 언어 배지 */}
-          <View className="mb-8">
-            <View className="rounded-full bg-gray-200 px-4 py-2">
-              <Text className="text-sm text-gray-600">{nativeLang ?? 'Language not set'}</Text>
+          {/* 상단: 닉네임 인사말 + 언어 배지 */}
+          <View className="mb-8 items-center gap-2">
+            {me?.profile?.nickname && (
+              <Text className="text-gray-700 text-base font-semibold">
+                안녕하세요, {me.profile.nickname}님 👋
+              </Text>
+            )}
+            <View className="flex-row items-center gap-2">
+              {nativeLang ? (
+                <View className="rounded-full bg-white/60 px-4 py-1.5 flex-row items-center gap-1">
+                  <Text className="text-base">{langFlag[nativeLang] ?? "🌐"}</Text>
+                  <Text className="text-sm font-semibold text-gray-700">{nativeLang.toUpperCase()}</Text>
+                </View>
+              ) : (
+                <View className="rounded-full bg-gray-200/80 px-4 py-1.5">
+                  <Text className="text-sm text-gray-500">언어 미설정</Text>
+                </View>
+              )}
+              {learningLang && (
+                <>
+                  <Text className="text-gray-400 text-base">→</Text>
+                  <View className="rounded-full bg-white/40 px-4 py-1.5 flex-row items-center gap-1">
+                    <Text className="text-base">{langFlag[learningLang] ?? "🌐"}</Text>
+                    <Text className="text-sm font-semibold text-gray-600">{learningLang.toUpperCase()}</Text>
+                  </View>
+                </>
+              )}
             </View>
           </View>
 

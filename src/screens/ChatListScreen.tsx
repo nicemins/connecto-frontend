@@ -111,7 +111,12 @@ function ListHeader({
     <>
       {pendingRequests.length > 0 && (
         <View style={styles.requestSection}>
-          <Text style={styles.sectionLabel}>친구 요청 {pendingRequests.length}</Text>
+          <View style={styles.sectionLabelRow}>
+          <Text style={styles.sectionLabel}>친구 요청</Text>
+          <View style={styles.requestCountBadge}>
+            <Text style={styles.requestCountText}>{pendingRequests.length}</Text>
+          </View>
+        </View>
           {pendingRequests.map((req) => (
             <View key={req.id} style={styles.requestRow}>
               <AvatarView
@@ -143,7 +148,10 @@ function ListHeader({
         </View>
       )}
       {chatRoomsCount > 0 && (
-        <Text style={styles.sectionLabel}>채팅 {chatRoomsCount}</Text>
+        <View style={styles.sectionLabelRow}>
+          <Text style={styles.sectionLabel}>대화 목록</Text>
+          <Text style={styles.sectionCount}>{chatRoomsCount}</Text>
+        </View>
       )}
     </>
   );
@@ -592,13 +600,38 @@ const styles = StyleSheet.create({
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   listContent: { paddingBottom: 20, flexGrow: 1 },
   // Section
-  sectionLabel: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 0.5,
+  sectionLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingTop: 12,
+    paddingBottom: 6,
+    gap: 8,
+  },
+  sectionLabel: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  sectionCount: {
+    color: "rgba(255,255,255,0.25)",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  requestCountBadge: {
+    backgroundColor: "#8B5CF6",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  requestCountText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
   },
   // Friend Requests
   requestSection: {

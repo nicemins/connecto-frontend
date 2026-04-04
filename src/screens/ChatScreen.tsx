@@ -35,6 +35,20 @@ type ChatScreenRouteProp = {
 // C3: 전송 중 메시지 큐 타입 (tempId 기반으로 echo 매칭)
 type PendingMsg = { tempId: number; content: string; time: number };
 
+const isSameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+const formatDateSeparator = (date: Date): string => {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameDay(date, today)) return "오늘";
+  if (isSameDay(date, yesterday)) return "어제";
+  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+};
+
 export default function ChatScreen() {
   const navigation = useNavigation<ChatScreenNavigationProp>();
   const route = useRoute<ChatScreenRouteProp>();
@@ -53,6 +67,7 @@ export default function ChatScreen() {
   const isSendingRef = React.useRef(false);
 
   const listRef = React.useRef<FlatList>(null);
+  const [showScrollBottom, setShowScrollBottom] = React.useState(false);
   // C3: 전송 중 메시지 큐 — content 기반이 아닌 tempId 기반 매칭
   const pendingQueueRef = React.useRef<PendingMsg[]>([]);
   const latestIdRef = React.useRef<number>(-1);
@@ -310,50 +325,69 @@ export default function ChatScreen() {
     }
   }, [myUserId, roomId]);
 
-  // M2: 스크롤 상단 감지 → 이전 메시지 로드
+  // M2: 스크롤 상단 감지 → 이전 메시지 로드 + 하단 버튼 표시
   const handleScroll = React.useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (e.nativeEvent.contentOffset.y < 80 && hasNext && !isLoading) {
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      if (contentOffset.y < 80 && hasNext && !isLoading) {
         loadMessages(page + 1);
       }
+      const distFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+      setShowScrollBottom(distFromBottom > 120);
     },
     [hasNext, isLoading, page, loadMessages]
   );
 
-  const renderMessage = ({ item }: { item: ChatMessage }) => {
+  const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => {
     const isMine = item.senderId === myUserId;
     const isPending = item.id < 0;
     const isImage = item.messageType === "IMAGE" || !!item.imageUrl;
     const isRead = isMine && !isPending && item.id > 0 && partnerLastReadId >= item.id;
+    const prevMsg = index > 0 ? messages[index - 1] : null;
+    const showDate =
+      index === 0 ||
+      (prevMsg !== null && !isSameDay(new Date(prevMsg.createdAt), new Date(item.createdAt)));
+    const timeStr = isPending
+      ? "전송 중..."
+      : new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     return (
-      <View style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}>
-        <View style={[
-          styles.messageBubble,
-          isMine ? styles.bubbleMine : styles.bubbleOther,
-          isPending && styles.bubblePending,
-          isImage && styles.bubbleImage,
-        ]}>
-          {isImage ? (
-            <View>
-              <Image source={{ uri: item.imageUrl! }} style={styles.chatImage} resizeMode="cover" />
-              {isPending && (
-                <View style={styles.imageLoadingOverlay}>
-                  <ActivityIndicator color="#fff" size="small" />
-                </View>
-              )}
-            </View>
-          ) : (
-            <Text style={isMine ? styles.messageTextMine : styles.messageTextOther}>
-              {item.content}
+      <>
+        {showDate && (
+          <View style={styles.dateSeparator}>
+            <View style={styles.dateSeparatorLine} />
+            <Text style={styles.dateSeparatorText}>
+              {formatDateSeparator(new Date(item.createdAt))}
             </Text>
-          )}
-          <Text style={styles.messageTime}>
-            {isPending
-              ? "전송 중..."
-              : `${new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}${isRead ? " ✓✓" : ""}`}
+            <View style={styles.dateSeparatorLine} />
+          </View>
+        )}
+        <View style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}>
+          <View style={[
+            styles.messageBubble,
+            isMine ? styles.bubbleMine : styles.bubbleOther,
+            isPending && styles.bubblePending,
+            isImage && styles.bubbleImage,
+          ]}>
+            {isImage ? (
+              <View>
+                <Image source={{ uri: item.imageUrl! }} style={styles.chatImage} resizeMode="cover" />
+                {isPending && (
+                  <View style={styles.imageLoadingOverlay}>
+                    <ActivityIndicator color="#fff" size="small" />
+                  </View>
+                )}
+              </View>
+            ) : (
+              <Text style={isMine ? styles.messageTextMine : styles.messageTextOther}>
+                {item.content}
+              </Text>
+            )}
+          </View>
+          <Text style={[styles.messageTime, isMine ? styles.messageTimeMine : styles.messageTimeOther]}>
+            {timeStr}{isMine && !isPending && (isRead ? " ✓✓" : "")}
           </Text>
         </View>
-      </View>
+      </>
     );
   };
 
@@ -383,6 +417,19 @@ export default function ChatScreen() {
           <Text style={styles.headerNickname}>{friendNickname}</Text>
         </View>
       </SafeAreaView>
+
+      {/* 스크롤 to bottom 버튼 */}
+      {showScrollBottom && (
+        <Pressable
+          style={styles.scrollBottomBtn}
+          onPress={() => {
+            listRef.current?.scrollToEnd({ animated: true });
+            setShowScrollBottom(false);
+          }}
+        >
+          <Text style={styles.scrollBottomIcon}>↓</Text>
+        </Pressable>
+      )}
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -504,7 +551,22 @@ const styles = StyleSheet.create({
   bubblePending: { opacity: 0.6 },
   messageTextMine: { color: "#fff", fontSize: 15, lineHeight: 21 },
   messageTextOther: { color: "rgba(255,255,255,0.9)", fontSize: 15, lineHeight: 21 },
-  messageTime: { color: "rgba(255,255,255,0.45)", fontSize: 10, marginTop: 4, textAlign: "right" },
+  messageTime: { color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 3 },
+  messageTimeMine: { textAlign: "right" },
+  messageTimeOther: { textAlign: "left" },
+  dateSeparator: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 16,
+    paddingHorizontal: 4,
+  },
+  dateSeparatorLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.15)" },
+  dateSeparatorText: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 11,
+    marginHorizontal: 12,
+    fontWeight: "500",
+  },
   inputSafeArea: { backgroundColor: "transparent" },
   typingIndicator: {
     color: "rgba(255,255,255,0.4)",
@@ -550,6 +612,25 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: { backgroundColor: "rgba(139,92,246,0.3)" },
   sendIcon: { color: "#fff", fontSize: 20, fontWeight: "bold" },
+  // 스크롤 to bottom 버튼
+  scrollBottomBtn: {
+    position: "absolute",
+    right: 16,
+    bottom: 90,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(139,92,246,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  scrollBottomIcon: { color: "#fff", fontSize: 18, fontWeight: "bold", lineHeight: 22 },
   // 이미지 버튼
   imageButton: {
     width: 40, height: 40, borderRadius: 20,
