@@ -66,33 +66,34 @@ function WaveBars({
   color: string;
   active: boolean;
 }) {
+  // scaleY 기반 애니메이션 — useNativeDriver: true 지원
+  // height 대신 scaleY + translateY로 하단 고정 성장 효과 구현
   const anims = React.useRef(
-    Array.from({ length: WAVE_COUNT }, () => new Animated.Value(0.2))
+    config.map((c) => new Animated.Value(4 / c.maxH))
   ).current;
 
   React.useEffect(() => {
     if (!active) {
-      // 연결 전: 조용히 미세하게만 움직임
-      anims.forEach((a) => a.setValue(0.15));
+      anims.forEach((a, i) => a.setValue(4 / config[i].maxH));
       return;
     }
-    const animations = anims.map((anim, i) =>
-      Animated.loop(
+    const animations = anims.map((anim, i) => {
+      const minFrac = 4 / config[i].maxH;
+      return Animated.loop(
         Animated.sequence([
           Animated.timing(anim, {
             toValue: 1,
             duration: config[i].duration,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
           Animated.timing(anim, {
-            toValue: 0.1,
+            toValue: minFrac,
             duration: config[i].duration,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
         ])
-      )
-    );
-    // 각 바를 약간 다른 시점에 시작해서 자연스럽게
+      );
+    });
     animations.forEach((a, i) => setTimeout(() => a.start(), i * 80));
     return () => animations.forEach((a) => a.stop());
   }, [active, anims, config]);
@@ -100,16 +101,24 @@ function WaveBars({
   return (
     <View style={styles.waveBars}>
       {anims.map((anim, i) => {
-        const height = anim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [4, config[i].maxH],
+        const maxH = config[i].maxH;
+        const minFrac = 4 / maxH;
+        // translateY: 하단 고정 — scaleY로 줄어든 만큼 아래로 이동
+        const translateY = anim.interpolate({
+          inputRange: [minFrac, 1],
+          outputRange: [(maxH / 2) * (1 - minFrac), 0],
         });
         return (
           <Animated.View
             key={i}
             style={[
               styles.waveBar,
-              { height, backgroundColor: color, opacity: active ? 0.9 : 0.3 },
+              {
+                height: maxH,
+                backgroundColor: color,
+                opacity: active ? 0.9 : 0.3,
+                transform: [{ translateY }, { scaleY: anim }],
+              },
             ]}
           />
         );
