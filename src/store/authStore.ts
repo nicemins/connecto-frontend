@@ -13,10 +13,13 @@ interface AuthState {
   me: UserMeResponse | null;
   // 전역 친구 온라인 상태 — useIncomingCall에서 초기 push 이벤트 수신 후 저장
   friendOnlineStatus: Record<number, boolean>;
+  // 전역 채팅 미읽 총합 — ChatListScreen에서 chatRooms 변경 시 동기화
+  totalUnreadCount: number;
   setAccessToken: (token: string | null) => void;
   setRefreshToken: (token: string | null) => void;
   setMe: (me: UserMeResponse | null) => void;
   updateFriendOnline: (friendId: number, isOnline: boolean) => void;
+  setTotalUnreadCount: (count: number) => void;
   persistTokens: (accessToken: string, refreshToken?: string | null) => Promise<void>;
   loadTokens: () => Promise<{ accessToken: string | null; refreshToken: string | null }>;
   logout: () => Promise<void>;
@@ -27,12 +30,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   refreshToken: null,
   me: null,
   friendOnlineStatus: {},
+  totalUnreadCount: 0,
 
   setAccessToken: (token) => set({ accessToken: token }),
   setRefreshToken: (token) => set({ refreshToken: token }),
   setMe: (me) => set({ me }),
   updateFriendOnline: (friendId, isOnline) =>
     set((prev) => ({ friendOnlineStatus: { ...prev.friendOnlineStatus, [friendId]: isOnline } })),
+  setTotalUnreadCount: (count) => set({ totalUnreadCount: count }),
 
   persistTokens: async (accessToken, refreshToken) => {
     set({ accessToken, ...(refreshToken !== undefined && { refreshToken }) });
@@ -57,6 +62,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: async () => {
     await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-    set({ accessToken: null, refreshToken: null, me: null });
+    set({ accessToken: null, refreshToken: null, me: null, totalUnreadCount: 0 });
   },
 }));

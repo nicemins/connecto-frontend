@@ -169,6 +169,7 @@ export default function ChatListScreen() {
   const [processingId, setProcessingId] = React.useState<number | null>(null);
   // 온라인 상태 — 전역 스토어에서 읽기 (useIncomingCall이 App.tsx 시점에서 friend:status-change 수집)
   const onlineStatusMap = useAuthStore((s) => s.friendOnlineStatus);
+  const setTotalUnreadCount = useAuthStore((s) => s.setTotalUnreadCount);
   // 1분마다 시간 표시 갱신
   const [, setTick] = React.useState(0);
 
@@ -177,6 +178,12 @@ export default function ChatListScreen() {
     const id = setInterval(() => setTick((t) => t + 1), 60000);
     return () => clearInterval(id);
   }, []);
+
+  // chatRooms 변경 시 전역 미읽 총합 동기화 → 탭바 뱃지에 반영
+  React.useEffect(() => {
+    const total = chatRooms.reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
+    setTotalUnreadCount(total);
+  }, [chatRooms, setTotalUnreadCount]);
 
   const loadData = React.useCallback(async (isRefresh = false) => {
     if (!isRefresh) setIsLoading(true);
