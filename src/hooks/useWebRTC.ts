@@ -68,6 +68,9 @@ export function useWebRTC({
   const isInitializedRef = useRef<boolean>(false);
   const wasConnectedRef = useRef<boolean>(false); // ICE 한 번이라도 연결된 적 있는지
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null); // PC 준비 전 도착한 offer 버퍼
+  // C1: onCallEnd를 ref로 캡처 — initializePeerConnection deps에서 제외하면서 항상 최신 콜백 사용
+  const onCallEndRef = useRef(onCallEnd);
+  onCallEndRef.current = onCallEnd;
 
   // STUN only fallback (API 실패 시)
   type IceConfig = { iceServers: { urls: string | string[]; username?: string; credential?: string }[] };
@@ -149,7 +152,7 @@ export function useWebRTC({
           // (에뮬레이터처럼 ICE가 처음부터 연결 안 된 경우 자동 종료 방지)
           if ((connectionState === "failed" || connectionState === "closed") && wasConnectedRef.current) {
             if (__DEV__) console.log(`[WebRTC] ICE ${connectionState} (was connected) → triggering onCallEnd`);
-            onCallEnd?.();
+            onCallEndRef.current?.();
           }
         }
       };
@@ -173,7 +176,7 @@ export function useWebRTC({
       if (__DEV__) console.error("initializePeerConnection error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
     }
-  }, [sessionId, webrtcChannelId, remoteUserId]);
+  }, [sessionId, webrtcChannelId]);
 
   // Offer 생성 및 전송
   const createOffer = useCallback(async () => {
@@ -200,7 +203,7 @@ export function useWebRTC({
       setState((prev) => ({ ...prev, error: errorMessage }));
       throw error;
     }
-  }, [sessionId, webrtcChannelId, remoteUserId]);
+  }, [sessionId, webrtcChannelId]);
 
   // Answer 생성 및 전송
   const createAnswer = useCallback(
@@ -233,7 +236,7 @@ export function useWebRTC({
         throw error;
       }
     },
-    [sessionId, webrtcChannelId, remoteUserId]
+    [sessionId, webrtcChannelId]
   );
 
   // WebRTC 초기화 및 연결 시작
@@ -338,9 +341,9 @@ export function useWebRTC({
       setState((prev) => ({ ...prev, error: errorMessage }));
       isInitializedRef.current = false;
       // 서버 call 세션 정리 — 미호출 시 ALREADY_IN_CALL 잔존
-      try { await endCall(sessionId); } catch { /* 세션 없으면 무시 */ }
+      try { await endCall(sessionId); } catch (e) { if (__DEV__) console.warn("endCall cleanup error:", e); }
     }
-  }, [initializePeerConnection, initializeLocalStream, createOffer, sessionId]);
+  }, [initializePeerConnection, initializeLocalStream, createOffer, createAnswer, sessionId]);
 
   // Cleanup: 모든 리소스 정리
   const cleanup = useCallback(() => {

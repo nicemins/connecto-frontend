@@ -218,8 +218,10 @@ export default function ChatListScreen() {
 
     const handleReceive = (data: {
       roomId: number;
-      message: { content: string; createdAt: string };
+      message: { content: string; createdAt: string; senderId?: number };
     }) => {
+      const myUserId = useAuthStore.getState().me?.user?.id;
+      const isOwnMessage = data.message.senderId !== undefined && data.message.senderId === myUserId;
       setChatRooms((prev) => {
         // M5: roomId가 목록에 없으면 다음 포커스 때 loadData()가 처리하므로 무시
         const exists = prev.some((r) => r.roomId === data.roomId);
@@ -231,7 +233,7 @@ export default function ChatListScreen() {
                   ...room,
                   lastMessage: data.message.content,
                   updatedAt: data.message.createdAt,
-                  unreadCount: room.unreadCount + 1,
+                  unreadCount: isOwnMessage ? room.unreadCount : room.unreadCount + 1,
                 }
               : room
           )
