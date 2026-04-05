@@ -70,7 +70,8 @@ export function useWebRTC({
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null); // PC 준비 전 도착한 offer 버퍼
 
   // STUN only fallback (API 실패 시)
-  const STUN_ONLY = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+  type IceConfig = { iceServers: { urls: string | string[]; username?: string; credential?: string }[] };
+  const STUN_ONLY: IceConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
   // 마이크 권한 확인 및 로컬 스트림 생성
   // react-native-webrtc의 getUserMedia는 자동으로 권한을 요청합니다

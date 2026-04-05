@@ -469,11 +469,11 @@ export default function MatchResultScreen() {
                   try {
                     const room = await createChatRoom(resolvedPartnerNumericId);
                     setShowProfileModal(false);
-                    navigation.replace("Chat" as never, {
+                    navigation.replace("Chat", {
                       roomId: room.roomId,
                       friendNickname: partnerProfile?.profile?.nickname ?? "상대방",
                       friendProfileImageUrl: partnerProfile?.profile?.profileImageUrl ?? undefined,
-                    } as never);
+                    });
                   } catch {
                     Alert.alert("오류", "채팅방을 열 수 없습니다.");
                   }
