@@ -151,5 +151,8 @@ async function registerForPushNotificationsAsync(): Promise<{
       token: deviceToken.data as string,
       platform: deviceToken.type === "ios" ? "ios" : "android",
     };
-  } catch { return null; }
+  } catch (e) {
+    if (__DEV__) console.warn("Push token registration error:", e);
+    return null;
+  }
 }

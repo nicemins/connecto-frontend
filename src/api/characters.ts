@@ -8,16 +8,11 @@ export type Character = {
   unlockCondition?: string;
 };
 
-export type CharactersResponse = {
-  success: boolean;
-  data: Character[];
-};
-
 /**
  * 캐릭터 목록 조회
  * GET /characters
  */
-export async function getCharacters(): Promise<CharactersResponse> {
-  const { data } = await apiClient.get<CharactersResponse>("/characters");
-  return data;
+export async function getCharacters(): Promise<Character[]> {
+  const { data } = await apiClient.get<{ success: boolean; data: Character[] }>("/characters");
+  return data.data;
 }

@@ -175,6 +175,7 @@ export function useWebRTC({
         error instanceof Error ? error.message : "PeerConnection 초기화 실패";
       if (__DEV__) console.error("initializePeerConnection error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
+      throw error; // I3: caller(startConnection)가 PC 초기화 실패를 감지할 수 있도록
     }
   }, [sessionId, webrtcChannelId]);
 

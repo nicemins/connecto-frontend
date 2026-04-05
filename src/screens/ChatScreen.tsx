@@ -351,7 +351,7 @@ export default function ChatScreen() {
       ? "전송 중..."
       : new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     return (
-      <>
+      <React.Fragment key={item.id}>
         {showDate && (
           <View style={styles.dateSeparator}>
             <View style={styles.dateSeparatorLine} />
@@ -387,7 +387,7 @@ export default function ChatScreen() {
             {timeStr}{isMine && !isPending && (isRead ? " ✓✓" : "")}
           </Text>
         </View>
-      </>
+      </React.Fragment>
     );
   };
 

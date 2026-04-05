@@ -187,8 +187,8 @@ export default function CallScreen() {
 
       try {
         await endCall(sessionId, reason);
-      } catch (e: any) {
-        const status = e?.response?.status ?? e?.status;
+      } catch (e: unknown) {
+        const status = (e as any)?.response?.status ?? (e as any)?.status;
         if (status !== 403 && status !== 409) {
           console.error("endCall error:", e);
           Alert.alert("오류", "통화 종료 중 오류가 발생했습니다.");
