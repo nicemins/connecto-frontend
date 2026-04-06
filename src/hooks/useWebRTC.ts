@@ -256,6 +256,14 @@ export function useWebRTC({
       }
       socketRef.current = socket;
 
+      // offerer: join 전에 peer-ready 리스너 먼저 등록 (join emit 후 즉시 peer-ready가 올 수 있음)
+      let peerReadyPromise: Promise<void> | null = null;
+      if (isOfferer) {
+        peerReadyPromise = new Promise<void>((resolve) => {
+          socket.once("webrtc:peer-ready", resolve);
+        });
+      }
+
       // 통화 채널 룸 진입 (시그널링 라우팅을 위해 join 먼저)
       socket.emit("webrtc:join", { channelId: webrtcChannelId, sessionId });
 
@@ -326,10 +334,13 @@ export function useWebRTC({
       if (__DEV__) console.log(`[WebRTC] startConnection isOfferer=${isOfferer} channelId=${webrtcChannelId}`);
       if (isOfferer) {
         isOffererRef.current = true;
-        // answerer는 polling(최대 2초)으로 늦게 합류 → 3초 대기 후 offer 생성
-        if (__DEV__) console.log("[WebRTC] Waiting 3s for answerer to join room...");
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        if (__DEV__) console.log("[WebRTC] Creating offer...");
+        // answerer의 webrtc:join이 서버에 도착하면 서버가 peer-ready를 브로드캐스트
+        if (__DEV__) console.log("[WebRTC] Waiting for peer-ready signal...");
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("peer-ready timeout (10s)")), 10000)
+        );
+        await Promise.race([peerReadyPromise!, timeoutPromise]);
+        if (__DEV__) console.log("[WebRTC] peer-ready received, creating offer...");
         await createOffer();
         if (__DEV__) console.log("[WebRTC] Offer created and sent");
       } else {
@@ -344,7 +355,7 @@ export function useWebRTC({
       // 서버 call 세션 정리 — 미호출 시 ALREADY_IN_CALL 잔존
       try { await endCall(sessionId); } catch (e) { if (__DEV__) console.warn("endCall cleanup error:", e); }
     }
-  }, [initializePeerConnection, initializeLocalStream, createOffer, createAnswer, sessionId]);
+  }, [initializePeerConnection, initializeLocalStream, createOffer, createAnswer, sessionId, webrtcChannelId, isOfferer]);
 
   // Cleanup: 모든 리소스 정리
   const cleanup = useCallback(() => {
@@ -368,6 +379,7 @@ export function useWebRTC({
       socketRef.current.off("webrtc:offer");
       socketRef.current.off("webrtc:answer");
       socketRef.current.off("webrtc:ice");
+      socketRef.current.off("webrtc:peer-ready");
     }
 
     // 상태 초기화
