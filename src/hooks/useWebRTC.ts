@@ -68,9 +68,13 @@ export function useWebRTC({
   const isInitializedRef = useRef<boolean>(false);
   const wasConnectedRef = useRef<boolean>(false); // ICE 한 번이라도 연결된 적 있는지
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null); // PC 준비 전 도착한 offer 버퍼
+  // C1: onCallEnd를 ref로 캡처 — initializePeerConnection deps에서 제외하면서 항상 최신 콜백 사용
+  const onCallEndRef = useRef(onCallEnd);
+  onCallEndRef.current = onCallEnd;
 
   // STUN only fallback (API 실패 시)
-  const STUN_ONLY = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+  type IceConfig = { iceServers: { urls: string | string[]; username?: string; credential?: string }[] };
+  const STUN_ONLY: IceConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
   // 마이크 권한 확인 및 로컬 스트림 생성
   // react-native-webrtc의 getUserMedia는 자동으로 권한을 요청합니다
@@ -148,7 +152,7 @@ export function useWebRTC({
           // (에뮬레이터처럼 ICE가 처음부터 연결 안 된 경우 자동 종료 방지)
           if ((connectionState === "failed" || connectionState === "closed") && wasConnectedRef.current) {
             if (__DEV__) console.log(`[WebRTC] ICE ${connectionState} (was connected) → triggering onCallEnd`);
-            onCallEnd?.();
+            onCallEndRef.current?.();
           }
         }
       };
@@ -171,8 +175,9 @@ export function useWebRTC({
         error instanceof Error ? error.message : "PeerConnection 초기화 실패";
       if (__DEV__) console.error("initializePeerConnection error:", error);
       setState((prev) => ({ ...prev, error: errorMessage }));
+      throw error; // I3: caller(startConnection)가 PC 초기화 실패를 감지할 수 있도록
     }
-  }, [sessionId, webrtcChannelId, remoteUserId]);
+  }, [sessionId, webrtcChannelId]);
 
   // Offer 생성 및 전송
   const createOffer = useCallback(async () => {
@@ -199,7 +204,7 @@ export function useWebRTC({
       setState((prev) => ({ ...prev, error: errorMessage }));
       throw error;
     }
-  }, [sessionId, webrtcChannelId, remoteUserId]);
+  }, [sessionId, webrtcChannelId]);
 
   // Answer 생성 및 전송
   const createAnswer = useCallback(
@@ -232,7 +237,7 @@ export function useWebRTC({
         throw error;
       }
     },
-    [sessionId, webrtcChannelId, remoteUserId]
+    [sessionId, webrtcChannelId]
   );
 
   // WebRTC 초기화 및 연결 시작
@@ -250,6 +255,14 @@ export function useWebRTC({
         throw new Error("Socket 연결을 가져올 수 없습니다.");
       }
       socketRef.current = socket;
+
+      // offerer: join 전에 peer-ready 리스너 먼저 등록 (join emit 후 즉시 peer-ready가 올 수 있음)
+      let peerReadyPromise: Promise<void> | null = null;
+      if (isOfferer) {
+        peerReadyPromise = new Promise<void>((resolve) => {
+          socket.once("webrtc:peer-ready", resolve);
+        });
+      }
 
       // 통화 채널 룸 진입 (시그널링 라우팅을 위해 join 먼저)
       socket.emit("webrtc:join", { channelId: webrtcChannelId, sessionId });
@@ -321,10 +334,13 @@ export function useWebRTC({
       if (__DEV__) console.log(`[WebRTC] startConnection isOfferer=${isOfferer} channelId=${webrtcChannelId}`);
       if (isOfferer) {
         isOffererRef.current = true;
-        // answerer는 polling(최대 2초)으로 늦게 합류 → 3초 대기 후 offer 생성
-        if (__DEV__) console.log("[WebRTC] Waiting 3s for answerer to join room...");
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        if (__DEV__) console.log("[WebRTC] Creating offer...");
+        // answerer의 webrtc:join이 서버에 도착하면 서버가 peer-ready를 브로드캐스트
+        if (__DEV__) console.log("[WebRTC] Waiting for peer-ready signal...");
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("peer-ready timeout (10s)")), 10000)
+        );
+        await Promise.race([peerReadyPromise!, timeoutPromise]);
+        if (__DEV__) console.log("[WebRTC] peer-ready received, creating offer...");
         await createOffer();
         if (__DEV__) console.log("[WebRTC] Offer created and sent");
       } else {
@@ -337,9 +353,9 @@ export function useWebRTC({
       setState((prev) => ({ ...prev, error: errorMessage }));
       isInitializedRef.current = false;
       // 서버 call 세션 정리 — 미호출 시 ALREADY_IN_CALL 잔존
-      try { await endCall(sessionId); } catch { /* 세션 없으면 무시 */ }
+      try { await endCall(sessionId); } catch (e) { if (__DEV__) console.warn("endCall cleanup error:", e); }
     }
-  }, [initializePeerConnection, initializeLocalStream, createOffer, sessionId]);
+  }, [initializePeerConnection, initializeLocalStream, createOffer, createAnswer, sessionId, webrtcChannelId, isOfferer]);
 
   // Cleanup: 모든 리소스 정리
   const cleanup = useCallback(() => {
@@ -363,6 +379,7 @@ export function useWebRTC({
       socketRef.current.off("webrtc:offer");
       socketRef.current.off("webrtc:answer");
       socketRef.current.off("webrtc:ice");
+      socketRef.current.off("webrtc:peer-ready");
     }
 
     // 상태 초기화

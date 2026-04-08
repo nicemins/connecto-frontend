@@ -6,6 +6,7 @@ import {
   useWindowDimensions,
   StyleSheet,
   Alert,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -36,6 +37,95 @@ type CallScreenRouteProp = {
 
 const TOTAL_SECONDS = 300; // 5분
 const LOCK_SECONDS = 30;  // 입장 후 30초간 종료 버튼 잠금
+const WAVE_COUNT = 6;
+
+// 웨이브 설정 — 각 바의 최대 높이와 주기(ms)
+const MY_WAVE_CONFIG = [
+  { maxH: 18, duration: 620 },
+  { maxH: 30, duration: 450 },
+  { maxH: 22, duration: 710 },
+  { maxH: 32, duration: 530 },
+  { maxH: 20, duration: 670 },
+  { maxH: 26, duration: 490 },
+];
+const PARTNER_WAVE_CONFIG = [
+  { maxH: 26, duration: 540 },
+  { maxH: 20, duration: 680 },
+  { maxH: 32, duration: 460 },
+  { maxH: 22, duration: 720 },
+  { maxH: 30, duration: 510 },
+  { maxH: 18, duration: 630 },
+];
+
+function WaveBars({
+  config,
+  color,
+  active,
+}: {
+  config: typeof MY_WAVE_CONFIG;
+  color: string;
+  active: boolean;
+}) {
+  // scaleY 기반 애니메이션 — useNativeDriver: true 지원
+  // height 대신 scaleY + translateY로 하단 고정 성장 효과 구현
+  const anims = React.useRef(
+    config.map((c) => new Animated.Value(4 / c.maxH))
+  ).current;
+
+  React.useEffect(() => {
+    if (!active) {
+      anims.forEach((a, i) => a.setValue(4 / config[i].maxH));
+      return;
+    }
+    const animations = anims.map((anim, i) => {
+      const minFrac = 4 / config[i].maxH;
+      return Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: config[i].duration,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: minFrac,
+            duration: config[i].duration,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+    });
+    animations.forEach((a, i) => setTimeout(() => a.start(), i * 80));
+    return () => animations.forEach((a) => a.stop());
+  }, [active, anims, config]);
+
+  return (
+    <View style={styles.waveBars}>
+      {anims.map((anim, i) => {
+        const maxH = config[i].maxH;
+        const minFrac = 4 / maxH;
+        // translateY: 하단 고정 — scaleY로 줄어든 만큼 아래로 이동
+        const translateY = anim.interpolate({
+          inputRange: [minFrac, 1],
+          outputRange: [(maxH / 2) * (1 - minFrac), 0],
+        });
+        return (
+          <Animated.View
+            key={i}
+            style={[
+              styles.waveBar,
+              {
+                height: maxH,
+                backgroundColor: color,
+                opacity: active ? 0.9 : 0.3,
+                transform: [{ translateY }, { scaleY: anim }],
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
 
 export default function CallScreen() {
   const navigation = useNavigation<CallScreenNavigationProp>();
@@ -72,13 +162,11 @@ export default function CallScreen() {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  // 실제 통화 시간 계산 (초 단위)
   const getTotalTimeSeconds = React.useCallback(() => {
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
-    return Math.min(elapsed, TOTAL_SECONDS); // 최대 5분
+    return Math.min(elapsed, TOTAL_SECONDS);
   }, [startTime]);
 
-  // 통화 시간을 MM:SS 형식으로 변환
   const getTotalTimeFormatted = React.useCallback(() => {
     const totalSeconds = getTotalTimeSeconds();
     const mins = Math.floor(totalSeconds / 60);
@@ -88,12 +176,10 @@ export default function CallScreen() {
 
   const handleEndCall = React.useCallback(
     async (reason?: string) => {
-      // H-3: isEndingRef로 race condition 방지 (state 비동기 업데이트 문제 해결)
       if (isEndingRef.current) return;
       isEndingRef.current = true;
       setIsEnding(true);
 
-      // H-2: 타이머 즉시 정리
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -101,10 +187,8 @@ export default function CallScreen() {
 
       try {
         await endCall(sessionId, reason);
-      } catch (e: any) {
-        // 403 ACCESS_DENIED = 상대방이 먼저 종료 → 세션은 ENDED, 정상 진행
-        // 409 INVALID_SESSION_STATE = 이미 종료된 세션 → 동일하게 MatchResult로 이동
-        const status = e?.response?.status ?? e?.status;
+      } catch (e: unknown) {
+        const status = (e as any)?.response?.status ?? (e as any)?.status;
         if (status !== 403 && status !== 409) {
           console.error("endCall error:", e);
           Alert.alert("오류", "통화 종료 중 오류가 발생했습니다.");
@@ -113,7 +197,6 @@ export default function CallScreen() {
           return;
         }
       }
-      // endCall 성공(200) or 상대방 먼저 종료(403) 모두 MatchResult로 이동
       try {
         const totalTime = getTotalTimeFormatted();
         const matchResult = await getMatchResult(sessionId).catch(() => null);
@@ -131,37 +214,27 @@ export default function CallScreen() {
     [sessionId, navigation, getTotalTimeFormatted]
   );
 
-  // handleEndCallRef 최신 함수로 유지
   React.useEffect(() => {
     handleEndCallRef.current = handleEndCall;
   }, [handleEndCall]);
 
-  // call:ended 소켓 수신 — 상대방이 먼저 종료 시 자동 이동
   React.useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
-
     const handleRemoteEnded = (data: { sessionId: number }) => {
       if (data.sessionId === sessionId) {
-        if (__DEV__) console.log("[CallScreen] call:ended received, ending call");
         handleEndCallRef.current("remote_ended");
       }
     };
-
     socket.on("call:ended", handleRemoteEnded);
-    return () => {
-      socket.off("call:ended", handleRemoteEnded);
-    };
+    return () => { socket.off("call:ended", handleRemoteEnded); };
   }, [sessionId]);
 
-  // call:rejected 소켓 수신 — 수신자가 거절 시 발신 화면 종료
   React.useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
-
     const handleRejected = (data: { sessionId: number }) => {
       if (data.sessionId === sessionId) {
-        if (__DEV__) console.log("[CallScreen] call:rejected received");
         if (isEndingRef.current) return;
         isEndingRef.current = true;
         if (timerRef.current) {
@@ -171,23 +244,17 @@ export default function CallScreen() {
         navigation.goBack();
       }
     };
-
     socket.on("call:rejected", handleRejected);
-    return () => {
-      socket.off("call:rejected", handleRejected);
-    };
+    return () => { socket.off("call:rejected", handleRejected); };
   }, [sessionId, navigation]);
 
-  // 타이머가 00:00이 되었을 때 자동으로 종료 처리
   React.useEffect(() => {
     if (secondsLeft === 0 && !isEndingRef.current) {
       handleEndCall("timeout");
     }
   }, [secondsLeft, handleEndCall]);
 
-  // 타이머 카운트다운 (마운트 시 한 번만 실행)
   React.useEffect(() => {
-    // H-2: timerRef에 저장해 handleEndCall에서 즉시 정리 가능하도록
     timerRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
@@ -200,7 +267,6 @@ export default function CallScreen() {
         return prev - 1;
       });
     }, 1000);
-
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -209,148 +275,118 @@ export default function CallScreen() {
     };
   }, []);
 
+  const elapsed = TOTAL_SECONDS - secondsLeft;
+  const isLocked = elapsed < LOCK_SECONDS;
+  const lockRemaining = LOCK_SECONDS - elapsed;
+
+  // 타이머 긴박감 — 남은 시간에 따라 색상 단계 변화
+  const timerUrgency =
+    secondsLeft <= 30 ? "critical" :
+    secondsLeft <= 60 ? "warning" : "normal";
+  const timerColor =
+    timerUrgency === "critical" ? "#FF4444" :
+    timerUrgency === "warning"  ? "#FF9500" : "#fff";
+  const bgColors: [string, string, ...string[]] =
+    timerUrgency === "critical"
+      ? ["#7F0000", "#B91C1C", "#312E81", "#1E3A8A", "#1E40AF"]
+      : timerUrgency === "warning"
+      ? ["#7C2D12", "#9A3412", "#312E81", "#1E3A8A", "#1E40AF"]
+      : ["#4C1D95", "#5B21B6", "#312E81", "#1E3A8A", "#1E40AF"];
+
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={["#4C1D95", "#5B21B6", "#312E81", "#1E3A8A", "#1E40AF"]}
+        colors={bgColors}
         locations={[0, 0.25, 0.5, 0.75, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
-        <View className="flex-1">
-          {/* 상단: 타이머 + 연결 상태 */}
-          <View className="items-center pt-6 pb-4">
-            <Text className="text-4xl font-bold text-white">
-              {formatTime(secondsLeft)}
+      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+
+        {/* 상단: 타이머 + 연결 상태 */}
+        <View style={styles.header}>
+          <Text style={[styles.timer, { color: timerColor }]}>{formatTime(secondsLeft)}</Text>
+
+          {/* 연결 상태 pill */}
+          <View style={[styles.statusPill, isConnected ? styles.statusConnected : styles.statusConnecting]}>
+            <View style={[styles.statusDot, { backgroundColor: isConnected ? "#10B981" : "#F59E0B" }]} />
+            <Text style={styles.statusText}>
+              {isConnected ? "연결됨" : "연결 중..."}
             </Text>
-            <View className="flex-row items-center mt-2 gap-1">
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: isConnected ? "#10B981" : "#F59E0B",
-                }}
-              />
-              <Text className="text-xs text-white/70">
-                {isConnected ? "연결됨" : "연결 중..."}
-              </Text>
-            </View>
-            {webrtcError && (
-              <>
-                <Text className="text-xs text-red-300 mt-1 text-center px-4">
-                  {webrtcError}
-                </Text>
-                <Pressable
-                  onPress={() => { cleanup(); startConnection(); }}
-                  disabled={isEnding}
-                  className="mt-2 px-4 py-1 rounded-full border border-white/40 disabled:opacity-40"
-                >
-                  <Text className="text-xs text-white/80">재연결</Text>
-                </Pressable>
-              </>
-            )}
           </View>
 
-          {/* 중앙: 두 캐릭터 마주보기 */}
-          <View className="flex-1 items-center justify-center px-6">
-            <View className="flex-row items-center justify-center gap-8">
-              {/* 왼쪽 캐릭터 */}
-              <View className="items-center">
-                <CharacterBlob
-                  size={charSize}
-                  colors={["#FFB88C", "#F093A0", "#B88FCE"]}
-                />
-                {/* 보이스 비주얼라이저 (파동) */}
-                <View className="mt-4 flex-row gap-1">
-                  {[0, 1, 2, 3, 4, 5].map((i) => {
-                    // 각 바마다 다른 불규칙한 파동 패턴
-                    const wavePatterns = [
-                      [8, 30, 15, 25, 8],
-                      [8, 20, 28, 12, 8],
-                      [8, 25, 18, 30, 8],
-                      [8, 22, 15, 28, 8],
-                      [8, 28, 20, 15, 8],
-                      [8, 18, 30, 22, 8],
-                    ];
-                    return (
-                      <View
-                        key={i}
-                        style={[
-                          styles.waveBar,
-                          {
-                            width: 4,
-                            height: wavePatterns[i][2],
-                            backgroundColor: "#FFB88C",
-                          },
-                        ]}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* 오른쪽 캐릭터 */}
-              <View className="items-center">
-                <CharacterBlob
-                  size={charSize}
-                  colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
-                />
-                {/* 보이스 비주얼라이저 (파동) */}
-                <View className="mt-4 flex-row gap-1">
-                  {[0, 1, 2, 3, 4, 5].map((i) => {
-                    // 각 바마다 다른 불규칙한 파동 패턴
-                    const wavePatterns = [
-                      [8, 28, 12, 30, 8],
-                      [8, 22, 25, 15, 8],
-                      [8, 30, 18, 22, 8],
-                      [8, 20, 28, 18, 8],
-                      [8, 25, 15, 30, 8],
-                      [8, 18, 28, 20, 8],
-                    ];
-                    return (
-                      <View
-                        key={i}
-                        style={[
-                          styles.waveBar,
-                          {
-                            width: 4,
-                            height: wavePatterns[i][2],
-                            backgroundColor: "#60A5FA",
-                          },
-                        ]}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
+          {webrtcError && (
+            <View style={styles.errorRow}>
+              <Text style={styles.errorText}>{webrtcError}</Text>
+              <Pressable
+                onPress={() => { cleanup(); startConnection(); }}
+                disabled={isEnding}
+                style={styles.reconnectBtn}
+              >
+                <Text style={styles.reconnectText}>재연결</Text>
+              </Pressable>
             </View>
-          </View>
-
-          {/* 하단: 종료 버튼 */}
-          {(() => {
-            const elapsed = TOTAL_SECONDS - secondsLeft;
-            const isLocked = elapsed < LOCK_SECONDS;
-            const lockRemaining = LOCK_SECONDS - elapsed;
-            return (
-              <View className="items-center pb-8">
-                {isLocked && (
-                  <Text className="text-xs text-white/60 mb-2">
-                    {lockRemaining}초 후 종료 가능
-                  </Text>
-                )}
-                <Pressable
-                  onPress={() => handleEndCall("user_cancel")}
-                  disabled={isEnding || isLocked}
-                  className="h-14 w-32 items-center justify-center rounded-full disabled:opacity-40"
-                  style={{ backgroundColor: isLocked ? "#6B7280" : "#EF4444" }}
-                >
-                  <Text className="text-lg font-semibold text-white">종료</Text>
-                </Pressable>
-              </View>
-            );
-          })()}
+          )}
         </View>
+
+        {/* 중앙: 두 캐릭터 */}
+        <View style={styles.charactersArea}>
+          {/* 나 */}
+          <View style={styles.characterSlot}>
+            <CharacterBlob
+              size={charSize}
+              colors={["#FFB88C", "#F093A0", "#B88FCE"]}
+            />
+            <WaveBars
+              config={MY_WAVE_CONFIG}
+              color="#FFB88C"
+              active={isConnected}
+            />
+            <Text style={styles.charLabel}>나</Text>
+          </View>
+
+          {/* 연결 심볼 */}
+          <View style={styles.connector}>
+            <Text style={styles.connectorText}>🎙️</Text>
+          </View>
+
+          {/* 상대방 */}
+          <View style={styles.characterSlot}>
+            <CharacterBlob
+              size={charSize}
+              colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
+            />
+            <WaveBars
+              config={PARTNER_WAVE_CONFIG}
+              color="#60A5FA"
+              active={isConnected}
+            />
+            <Text style={styles.charLabel}>상대방</Text>
+          </View>
+        </View>
+
+        {/* 하단: 종료 버튼 */}
+        <View style={styles.footer}>
+          {isLocked && (
+            <View style={styles.lockRow}>
+              <Text style={styles.lockIcon}>🔒</Text>
+              <Text style={styles.lockText}>{lockRemaining}초 후 종료 가능</Text>
+            </View>
+          )}
+          <Pressable
+            onPress={() => handleEndCall("user_cancel")}
+            disabled={isEnding || isLocked}
+            style={[
+              styles.endButton,
+              isLocked && styles.endButtonLocked,
+              isEnding && styles.endButtonEnding,
+            ]}
+          >
+            <Text style={styles.endButtonText}>
+              {isEnding ? "종료 중..." : "통화 종료"}
+            </Text>
+          </Pressable>
+        </View>
+
       </SafeAreaView>
     </View>
   );
@@ -358,7 +394,152 @@ export default function CallScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  safeArea: { flex: 1 },
+  // Header
+  header: {
+    alignItems: "center",
+    paddingTop: 24,
+    paddingBottom: 16,
+    paddingHorizontal: 24,
+  },
+  timer: {
+    fontSize: 52,
+    fontWeight: "700",
+    color: "#fff",
+    letterSpacing: 2,
+    fontVariant: ["tabular-nums"],
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginTop: 8,
+  },
+  statusConnected: {
+    backgroundColor: "rgba(16,185,129,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.3)",
+  },
+  statusConnecting: {
+    backgroundColor: "rgba(245,158,11,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.3)",
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  statusText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    fontWeight: "500",
+  },
+  errorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  errorText: {
+    fontSize: 12,
+    color: "#FCA5A5",
+    flex: 1,
+    textAlign: "center",
+  },
+  reconnectBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  reconnectText: {
+    fontSize: 12,
+    color: "#fff",
+    fontWeight: "500",
+  },
+  // Characters
+  charactersArea: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  characterSlot: {
+    alignItems: "center",
+    flex: 1,
+  },
+  waveBars: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 4,
+    marginTop: 16,
+    height: 36,
+  },
   waveBar: {
+    width: 4,
     borderRadius: 2,
+  },
+  charLabel: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.5)",
+    marginTop: 10,
+    fontWeight: "500",
+  },
+  connector: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 40,
+  },
+  connectorText: {
+    fontSize: 28,
+    opacity: 0.6,
+  },
+  // Footer
+  footer: {
+    alignItems: "center",
+    paddingBottom: 40,
+    paddingHorizontal: 40,
+    gap: 12,
+  },
+  lockRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  lockIcon: {
+    fontSize: 12,
+  },
+  lockText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.5)",
+  },
+  endButton: {
+    width: "100%",
+    height: 56,
+    backgroundColor: "#EF4444",
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  endButtonLocked: {
+    backgroundColor: "rgba(107,114,128,0.4)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  endButtonEnding: {
+    opacity: 0.6,
+  },
+  endButtonText: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#fff",
   },
 });

@@ -9,6 +9,7 @@ import {
   ScrollView,
   Modal,
   Image,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -17,6 +18,7 @@ import type { RootStackParamList } from "../navigation/types";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { requestFriend, checkFriendStatus } from "../api/friends";
+import { createChatRoom } from "../api/chat";
 import { reportUser } from "../api/report";
 import { callAgain } from "../api/call";
 import { getMatchResult, type MatchResultData } from "../api/match";
@@ -58,6 +60,27 @@ export default function MatchResultScreen() {
   const [isReporting, setIsReporting] = React.useState(false);
   const [showProfileModal, setShowProfileModal] = React.useState(false);
   const [profileLoadFailed, setProfileLoadFailed] = React.useState(false);
+
+  const enterAnim = React.useRef(new Animated.Value(0)).current;
+  const celebAnim = React.useRef(new Animated.Value(1)).current;
+
+  React.useEffect(() => {
+    Animated.spring(enterAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 55,
+      friction: 9,
+    }).start();
+  }, [enterAnim]);
+
+  React.useEffect(() => {
+    if (friendRequestStatus === "mutual") {
+      Animated.sequence([
+        Animated.timing(celebAnim, { toValue: 1.18, duration: 180, useNativeDriver: true }),
+        Animated.spring(celebAnim, { toValue: 1, useNativeDriver: true, tension: 200, friction: 8 }),
+      ]).start();
+    }
+  }, [friendRequestStatus, celebAnim]);
 
   const loadPartnerProfile = React.useCallback(() => {
     setProfileLoadFailed(false);
@@ -218,7 +241,16 @@ export default function MatchResultScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* 중앙: 통화 시간 서클 UI 및 캐릭터 */}
-          <View className="items-center mb-8">
+          <Animated.View
+            className="items-center mb-8"
+            style={{
+              opacity: enterAnim,
+              transform: [
+                { translateY: enterAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) },
+                { scale: enterAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) },
+              ],
+            }}
+          >
             {/* 통화 시간 서클 */}
             <View
               style={[
@@ -236,24 +268,34 @@ export default function MatchResultScreen() {
                 className="rounded-full"
               />
               <View className="items-center justify-center flex-1">
-                <Text className="text-5xl font-bold text-white mb-2">
+                <Text className="text-3xl mb-1">✨</Text>
+                <Text className="text-5xl font-bold text-white mb-1">
                   {totalTime}
                 </Text>
-                <Text className="text-base text-white/80">통화 시간</Text>
+                <Text className="text-sm text-white/60 tracking-widest uppercase">통화 완료</Text>
               </View>
             </View>
 
             {/* 문구 */}
-            <View className="mt-6"
-            >
+            <View className="mt-6">
               {partnerNickname ? (
-                <Text className="text-2xl font-bold text-white text-center px-4">
-                  {partnerNickname}님과의 대화가 즐거웠나요?
-                </Text>
+                <>
+                  <Text className="text-2xl font-bold text-white text-center px-4">
+                    {partnerNickname}님과의 대화
+                  </Text>
+                  <Text className="text-base text-white/60 text-center mt-1">
+                    즐거우셨나요? 🎙️
+                  </Text>
+                </>
               ) : (
-                <Text className="text-2xl font-bold text-white text-center px-4">
-                  {totalTime} 동안의 대화가 즐거웠나요?
-                </Text>
+                <>
+                  <Text className="text-2xl font-bold text-white text-center px-4">
+                    {totalTime} 동안의 대화
+                  </Text>
+                  <Text className="text-base text-white/60 text-center mt-1">
+                    즐거우셨나요? 🎙️
+                  </Text>
+                </>
               )}
             </View>
 
@@ -264,7 +306,7 @@ export default function MatchResultScreen() {
                 colors={["#60A5FA", "#3B82F6", "#8B5CF6"]}
               />
             </View>
-          </View>
+          </Animated.View>
 
           {/* 친구 신청 섹션 */}
           <View className="mb-6 px-6">
@@ -273,7 +315,7 @@ export default function MatchResultScreen() {
             </Text>
 
             {friendRequestStatus === "mutual" ? (
-              <View className="items-center">
+              <Animated.View className="items-center" style={{ transform: [{ scale: celebAnim }] }}>
                 <View className="mb-4 w-full px-4 py-4 rounded-2xl bg-green-500/20 border-2 border-green-400 items-center">
                   <Text className="text-xl mb-1">🎉</Text>
                   <Text className="text-base font-bold text-green-200 text-center">
@@ -291,7 +333,7 @@ export default function MatchResultScreen() {
                     프로필 보기
                   </Text>
                 </Pressable>
-              </View>
+              </Animated.View>
             ) : friendRequestStatus === "requested" ? (
               <View className="w-full px-4 py-4 rounded-2xl bg-white/10 border border-white/20 items-center">
                 <Text className="text-base font-semibold text-white/80 text-center">
@@ -419,6 +461,28 @@ export default function MatchResultScreen() {
             <Text className="text-sm text-white/70 text-center px-6 mb-6">
               {partnerProfile?.profile?.bio ?? "소개가 없습니다"}
             </Text>
+
+            {/* 채팅하기 버튼 (친구가 된 경우) */}
+            {friendRequestStatus === "mutual" && resolvedPartnerNumericId && (
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const room = await createChatRoom(resolvedPartnerNumericId);
+                    setShowProfileModal(false);
+                    navigation.replace("Chat", {
+                      roomId: room.roomId,
+                      friendNickname: partnerProfile?.profile?.nickname ?? "상대방",
+                      friendProfileImageUrl: partnerProfile?.profile?.profileImageUrl ?? undefined,
+                    });
+                  } catch {
+                    Alert.alert("오류", "채팅방을 열 수 없습니다.");
+                  }
+                }}
+                className="mx-6 h-12 items-center justify-center rounded-2xl bg-purple-500 mb-3"
+              >
+                <Text className="text-base font-semibold text-white">💬  채팅하기</Text>
+              </Pressable>
+            )}
 
             {/* 닫기 버튼 */}
             <Pressable

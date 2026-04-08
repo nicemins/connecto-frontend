@@ -181,6 +181,10 @@ export default function MyPageScreen() {
   };
 
   const LANGUAGES = ["ko", "en", "ja", "zh", "es", "fr", "de"];
+  const LANG_FLAGS: Record<string, string> = {
+    ko: "🇰🇷", en: "🇺🇸", ja: "🇯🇵", zh: "🇨🇳",
+    es: "🇪🇸", fr: "🇫🇷", de: "🇩🇪",
+  };
   const EDIT_LEVELS = ["BEGINNER", "INTERMEDIATE", "ADVANCED"] as const;
 
   const profileImageUrl = me?.profile?.profileImageUrl ?? null;
@@ -324,26 +328,6 @@ export default function MyPageScreen() {
             </View>
           </View>
 
-          {/* 계정 관리 카드 */}
-          <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
-            <Text className="text-white text-lg font-bold mb-3">계정</Text>
-            <Pressable
-              onPress={() => navigation.navigate("BlockList")}
-              className="h-12 items-center justify-center rounded-2xl bg-white/10 border border-white/20 mb-2"
-            >
-              <Text className="text-white text-sm font-semibold">차단 목록</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleLogout}
-              className="h-12 items-center justify-center rounded-2xl bg-white/10 border border-white/20 mb-2"
-            >
-              <Text className="text-white text-sm font-semibold">로그아웃</Text>
-            </Pressable>
-            <Pressable onPress={handleWithdraw} className="h-10 items-center justify-center">
-              <Text className="text-red-400/70 text-xs">회원 탈퇴</Text>
-            </Pressable>
-          </View>
-
           {/* 언어 카드 */}
           <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
             <View className="flex-row items-center justify-between mb-3">
@@ -371,15 +355,16 @@ export default function MyPageScreen() {
             {!langEditing ? (
               <>
                 {nativeLangs.length > 0 && (
-                  <View className="mb-2">
-                    <Text className="text-white/60 text-xs mb-1">모국어</Text>
+                  <View className="mb-3">
+                    <Text className="text-white/50 text-xs mb-2">모국어</Text>
                     <View className="flex-row flex-wrap gap-2">
                       {nativeLangs.map((l) => (
                         <View
                           key={l.id}
-                          className="px-3 py-1 rounded-full bg-purple-500/30 border border-purple-400/50"
+                          className="px-3 py-1.5 rounded-full bg-purple-500/30 border border-purple-400/50 flex-row items-center gap-1"
                         >
-                          <Text className="text-purple-200 text-sm">
+                          <Text className="text-base">{LANG_FLAGS[l.languageCode] ?? "🌐"}</Text>
+                          <Text className="text-purple-200 text-sm font-semibold">
                             {l.languageCode.toUpperCase()}
                           </Text>
                         </View>
@@ -389,16 +374,18 @@ export default function MyPageScreen() {
                 )}
                 {learningLangs.length > 0 && (
                   <View>
-                    <Text className="text-white/60 text-xs mb-1">학습 중</Text>
+                    <Text className="text-white/50 text-xs mb-2">학습 중</Text>
                     <View className="flex-row flex-wrap gap-2">
                       {learningLangs.map((l) => (
                         <View
                           key={l.id}
-                          className="px-3 py-1 rounded-full bg-blue-500/30 border border-blue-400/50"
+                          className="px-3 py-1.5 rounded-full bg-blue-500/30 border border-blue-400/50 flex-row items-center gap-1"
                         >
-                          <Text className="text-blue-200 text-sm">
-                            {l.languageCode.toUpperCase()} · {l.level}
+                          <Text className="text-base">{LANG_FLAGS[l.languageCode] ?? "🌐"}</Text>
+                          <Text className="text-blue-200 text-sm font-semibold">
+                            {l.languageCode.toUpperCase()}
                           </Text>
+                          <Text className="text-blue-300/60 text-xs"> · {l.level}</Text>
                         </View>
                       ))}
                     </View>
@@ -420,6 +407,7 @@ export default function MyPageScreen() {
                         onPress={() => setEditNative(lang)}
                         style={[styles.langChip, selected && styles.langChipSelected]}
                       >
+                        <Text style={styles.langChipFlag}>{LANG_FLAGS[lang] ?? "🌐"}</Text>
                         <Text style={selected ? styles.langChipTextSelected : styles.langChipText}>
                           {lang.toUpperCase()}
                         </Text>
@@ -438,6 +426,7 @@ export default function MyPageScreen() {
                         onPress={() => setEditLearning(lang)}
                         style={[styles.langChip, selected && styles.langChipSelected]}
                       >
+                        <Text style={styles.langChipFlag}>{LANG_FLAGS[lang] ?? "🌐"}</Text>
                         <Text style={selected ? styles.langChipTextSelected : styles.langChipText}>
                           {lang.toUpperCase()}
                         </Text>
@@ -465,6 +454,43 @@ export default function MyPageScreen() {
                 </View>
               </>
             )}
+          </View>
+
+          {/* 관심사 카드 */}
+          {me?.interests && me.interests.length > 0 && (
+            <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
+              <Text className="text-white text-lg font-bold mb-3">관심사</Text>
+              <View className="flex-row flex-wrap gap-2">
+                {me.interests.map((interest) => (
+                  <View
+                    key={interest.id}
+                    className="px-3 py-1 rounded-full bg-pink-500/20 border border-pink-400/40"
+                  >
+                    <Text className="text-pink-200 text-sm">{interest.tag}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* 계정 관리 카드 */}
+          <View className="mx-4 mb-4 p-4 rounded-3xl bg-white/10 border border-white/20">
+            <Text className="text-white text-lg font-bold mb-3">계정</Text>
+            <Pressable
+              onPress={() => navigation.navigate("BlockList")}
+              style={styles.accountBtn}
+            >
+              <Text style={styles.accountBtnText}>🚫  차단 목록</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleLogout}
+              style={[styles.accountBtn, styles.accountBtnLogout]}
+            >
+              <Text style={[styles.accountBtnText, styles.accountBtnLogoutText]}>로그아웃</Text>
+            </Pressable>
+            <Pressable onPress={handleWithdraw} className="h-10 items-center justify-center mt-1">
+              <Text className="text-red-400/60 text-xs">회원 탈퇴</Text>
+            </Pressable>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -561,6 +587,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.2)",
   },
   langChip: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 4,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
@@ -572,8 +601,32 @@ const styles = StyleSheet.create({
     borderColor: "#8b5cf6",
     backgroundColor: "#8b5cf6",
   },
-  langChipText: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" },
-  langChipTextSelected: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  langChipFlag: { fontSize: 15 },
+  langChipText: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" as const },
+  langChipTextSelected: { color: "#fff", fontSize: 13, fontWeight: "600" as const },
+  accountBtn: {
+    height: 52,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    marginBottom: 8,
+  },
+  accountBtnText: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 15,
+    fontWeight: "600" as const,
+  },
+  accountBtnLogout: {
+    backgroundColor: "rgba(251,191,36,0.1)",
+    borderColor: "rgba(251,191,36,0.25)",
+  },
+  accountBtnLogoutText: {
+    color: "rgba(252,211,77,0.9)",
+  },
   // SEC-L3: 탈퇴 재인증 Modal 스타일
   deleteModalOverlay: {
     flex: 1,

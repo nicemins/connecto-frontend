@@ -111,7 +111,12 @@ function ListHeader({
     <>
       {pendingRequests.length > 0 && (
         <View style={styles.requestSection}>
-          <Text style={styles.sectionLabel}>친구 요청 {pendingRequests.length}</Text>
+          <View style={styles.sectionLabelRow}>
+          <Text style={styles.sectionLabel}>친구 요청</Text>
+          <View style={styles.requestCountBadge}>
+            <Text style={styles.requestCountText}>{pendingRequests.length}</Text>
+          </View>
+        </View>
           {pendingRequests.map((req) => (
             <View key={req.id} style={styles.requestRow}>
               <AvatarView
@@ -143,7 +148,10 @@ function ListHeader({
         </View>
       )}
       {chatRoomsCount > 0 && (
-        <Text style={styles.sectionLabel}>채팅 {chatRoomsCount}</Text>
+        <View style={styles.sectionLabelRow}>
+          <Text style={styles.sectionLabel}>대화 목록</Text>
+          <Text style={styles.sectionCount}>{chatRoomsCount}</Text>
+        </View>
       )}
     </>
   );
@@ -161,6 +169,7 @@ export default function ChatListScreen() {
   const [processingId, setProcessingId] = React.useState<number | null>(null);
   // 온라인 상태 — 전역 스토어에서 읽기 (useIncomingCall이 App.tsx 시점에서 friend:status-change 수집)
   const onlineStatusMap = useAuthStore((s) => s.friendOnlineStatus);
+  const setTotalUnreadCount = useAuthStore((s) => s.setTotalUnreadCount);
   // 1분마다 시간 표시 갱신
   const [, setTick] = React.useState(0);
 
@@ -169,6 +178,12 @@ export default function ChatListScreen() {
     const id = setInterval(() => setTick((t) => t + 1), 60000);
     return () => clearInterval(id);
   }, []);
+
+  // chatRooms 변경 시 전역 미읽 총합 동기화 → 탭바 뱃지에 반영
+  React.useEffect(() => {
+    const total = chatRooms.reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
+    setTotalUnreadCount(total);
+  }, [chatRooms, setTotalUnreadCount]);
 
   const loadData = React.useCallback(async (isRefresh = false) => {
     if (!isRefresh) setIsLoading(true);
@@ -203,8 +218,10 @@ export default function ChatListScreen() {
 
     const handleReceive = (data: {
       roomId: number;
-      message: { content: string; createdAt: string };
+      message: { content: string; createdAt: string; senderId?: number };
     }) => {
+      const myUserId = useAuthStore.getState().me?.user?.id;
+      const isOwnMessage = data.message.senderId !== undefined && data.message.senderId === myUserId;
       setChatRooms((prev) => {
         // M5: roomId가 목록에 없으면 다음 포커스 때 loadData()가 처리하므로 무시
         const exists = prev.some((r) => r.roomId === data.roomId);
@@ -216,7 +233,7 @@ export default function ChatListScreen() {
                   ...room,
                   lastMessage: data.message.content,
                   updatedAt: data.message.createdAt,
-                  unreadCount: room.unreadCount + 1,
+                  unreadCount: isOwnMessage ? room.unreadCount : room.unreadCount + 1,
                 }
               : room
           )
@@ -414,7 +431,17 @@ export default function ChatListScreen() {
       <LinearGradient colors={["#10101E", "#16213E"]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>채팅</Text>
+          <View style={styles.headerTitleRow}>
+            <Text style={styles.headerTitle}>채팅</Text>
+            {(() => {
+              const totalUnread = chatRooms.reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
+              return totalUnread > 0 ? (
+                <View style={styles.headerUnreadBadge}>
+                  <Text style={styles.headerUnreadText}>{totalUnread > 99 ? "99+" : totalUnread}</Text>
+                </View>
+              ) : null;
+            })()}
+          </View>
           <View style={styles.headerActions}>
             <Pressable onPress={() => setShowFriendManage(true)} style={styles.headerBtn}>
               <Text style={styles.headerBtnIcon}>👥</Text>
@@ -585,20 +612,56 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "700" },
+  headerUnreadBadge: {
+    backgroundColor: "#8B5CF6",
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  headerUnreadText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   headerActions: { flexDirection: "row", gap: 4 },
   headerBtn: { padding: 8 },
   headerBtnIcon: { fontSize: 20 },
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   listContent: { paddingBottom: 20, flexGrow: 1 },
   // Section
-  sectionLabel: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 0.5,
+  sectionLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingTop: 12,
+    paddingBottom: 6,
+    gap: 8,
+  },
+  sectionLabel: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  sectionCount: {
+    color: "rgba(255,255,255,0.25)",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  requestCountBadge: {
+    backgroundColor: "#8B5CF6",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  requestCountText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
   },
   // Friend Requests
   requestSection: {

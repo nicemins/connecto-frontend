@@ -6,6 +6,7 @@ import {
   useWindowDimensions,
   StyleSheet,
   Image,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
@@ -39,7 +40,30 @@ export default function HomeScreen() {
   };
 
   const nativeLang = me?.languages?.find((l) => l.type === "NATIVE")?.languageCode ?? null;
+  const learningLang = me?.languages?.find((l) => l.type === "LEARNING")?.languageCode ?? null;
   const profileImageUrl = me?.profile?.profileImageUrl ?? null;
+
+  const langFlag: Record<string, string> = {
+    ko: "🇰🇷", en: "🇺🇸", ja: "🇯🇵", zh: "🇨🇳",
+    es: "🇪🇸", fr: "🇫🇷", de: "🇩🇪",
+  };
+
+  const floatAnim = React.useRef(new Animated.Value(0)).current;
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, { toValue: -10, duration: 2000, useNativeDriver: true }),
+        Animated.timing(floatAnim, { toValue: 0, duration: 2000, useNativeDriver: true }),
+      ])
+    ).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.05, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [floatAnim, pulseAnim]);
 
   return (
     <View style={styles.root}>
@@ -50,14 +74,38 @@ export default function HomeScreen() {
       />
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         <View className="flex-1 items-center justify-center px-6">
-          {/* 상단: 언어 배지 */}
-          <View className="mb-8">
-            <View className="rounded-full bg-gray-200 px-4 py-2">
-              <Text className="text-sm text-gray-600">{nativeLang ?? 'Language not set'}</Text>
+          {/* 상단: 닉네임 인사말 + 언어 배지 */}
+          <View className="mb-8 items-center gap-2">
+            {me?.profile?.nickname && (
+              <Text className="text-gray-700 text-base font-semibold">
+                안녕하세요, {me.profile.nickname}님 👋
+              </Text>
+            )}
+            <View className="flex-row items-center gap-2">
+              {nativeLang ? (
+                <View className="rounded-full bg-white/60 px-4 py-1.5 flex-row items-center gap-1">
+                  <Text className="text-base">{langFlag[nativeLang] ?? "🌐"}</Text>
+                  <Text className="text-sm font-semibold text-gray-700">{nativeLang.toUpperCase()}</Text>
+                </View>
+              ) : (
+                <View className="rounded-full bg-gray-200/80 px-4 py-1.5">
+                  <Text className="text-sm text-gray-500">언어 미설정</Text>
+                </View>
+              )}
+              {learningLang && (
+                <>
+                  <Text className="text-gray-400 text-base">→</Text>
+                  <View className="rounded-full bg-white/40 px-4 py-1.5 flex-row items-center gap-1">
+                    <Text className="text-base">{langFlag[learningLang] ?? "🌐"}</Text>
+                    <Text className="text-sm font-semibold text-gray-600">{learningLang.toUpperCase()}</Text>
+                  </View>
+                </>
+              )}
             </View>
           </View>
 
           {/* 중앙: 메인 프로필 이미지 */}
+          <Animated.View style={{ transform: [{ translateY: floatAnim }] }}>
           <Pressable
             onPress={handleGoToMyPage}
             className="mb-12 items-center"
@@ -104,8 +152,10 @@ export default function HomeScreen() {
               )}
             </View>
           </Pressable>
+          </Animated.View>
 
           {/* 하단: Find Partner 버튼 */}
+          <Animated.View style={{ transform: [{ scale: pulseAnim }], width: "100%" }}>
           <Pressable
             onPress={handleFindPartner}
             className="h-14 w-full items-center justify-center rounded-2xl"
@@ -119,6 +169,7 @@ export default function HomeScreen() {
             />
             <Text className="text-lg font-semibold text-white">Find Partner</Text>
           </Pressable>
+          </Animated.View>
 
         </View>
       </SafeAreaView>
