@@ -10,9 +10,10 @@ import {
   Modal,
   ListRenderItem,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -45,6 +46,7 @@ export default function FriendListScreen() {
   const [friends, setFriends] = React.useState<Friend[]>([]);
   const [pendingRequests, setPendingRequests] = React.useState<PendingFriendRequest[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [processingRequestId, setProcessingRequestId] = React.useState<number | null>(null);
   const [selectedFriend, setSelectedFriend] = React.useState<Friend | null>(null);
   // 전역 스토어에서 온라인 상태 읽기
@@ -52,9 +54,9 @@ export default function FriendListScreen() {
   const socketRef = React.useRef<Socket | null>(null);
 
   // 친구 목록 + 친구 요청 로드
-  const loadData = React.useCallback(async () => {
+  const loadData = React.useCallback(async (silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       const [friendList, requestList] = await Promise.all([
         getFriendList(),
         getFriendRequests(),
@@ -66,11 +68,20 @@ export default function FriendListScreen() {
       Alert.alert("오류", "친구 목록을 불러오는데 실패했습니다.");
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
 
-  React.useEffect(() => {
-    loadData();
+  // 최초 로드 + 탭 포커스 시 자동 새로고침
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  const handleRefresh = React.useCallback(() => {
+    setIsRefreshing(true);
+    loadData(true);
   }, [loadData]);
 
   // socketRef 초기화 (call 이벤트 등 다른 핸들러에서 사용)
@@ -209,7 +220,7 @@ export default function FriendListScreen() {
     const isOnline = onlineStatusMap[friend.userId] ?? false;
     return (
     <Pressable
-      className="mb-4 mx-4 p-4 rounded-2xl bg-white/10 border border-white/20 active:opacity-80"
+      style={[styles.friendCard, isOnline && styles.friendCardOnline]}
       onPress={() => handleFriendProfilePress(friend)}
       onLongPress={() => {
         Alert.alert(friend.nickname ?? "친구", "", [
@@ -268,12 +279,20 @@ export default function FriendListScreen() {
           </Text>
         </View>
 
-        <Pressable
-          onPress={() => handleCallRequest(friend)}
-          className="ml-3 h-10 px-4 items-center justify-center rounded-xl bg-purple-500 active:opacity-70"
-        >
-          <Text className="text-sm font-semibold text-white">📞 통화</Text>
-        </Pressable>
+        <View style={styles.cardActions}>
+          <Pressable
+            onPress={() => handleOpenChat(friend)}
+            style={styles.cardActionBtn}
+          >
+            <Text style={styles.cardActionIcon}>💬</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => handleCallRequest(friend)}
+            style={[styles.cardActionBtn, styles.cardActionBtnPrimary]}
+          >
+            <Text style={styles.cardActionIcon}>📞</Text>
+          </Pressable>
+        </View>
       </View>
     </Pressable>
   );
@@ -487,9 +506,20 @@ export default function FriendListScreen() {
         {/* 헤더 */}
         <View className="px-4 pt-6 pb-4 flex-row items-center justify-between">
           <Text className="text-3xl font-bold text-white">친구 목록</Text>
-          {friends.length > 0 && (
-            <Text className="text-sm text-white/50">{friends.length}명</Text>
-          )}
+          <View className="flex-row items-center gap-3">
+            {(() => {
+              const onlineCount = friends.filter((f) => onlineStatusMap[f.userId]).length;
+              return onlineCount > 0 ? (
+                <View className="flex-row items-center gap-1 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-500/40">
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "#22C55E" }} />
+                  <Text className="text-xs text-green-400 font-semibold">{onlineCount}명 온라인</Text>
+                </View>
+              ) : null;
+            })()}
+            {friends.length > 0 && (
+              <Text className="text-sm text-white/50">{friends.length}명</Text>
+            )}
+          </View>
         </View>
 
         <FlatList
@@ -516,6 +546,14 @@ export default function FriendListScreen() {
             pendingRequests.length === 0 ? renderEmptyState : null
           }
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor="rgba(255,255,255,0.6)"
+              colors={["#8B5CF6"]}
+            />
+          }
         />
       </SafeAreaView>
     </View>
@@ -524,12 +562,47 @@ export default function FriendListScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  friendCard: {
+    marginBottom: 12,
+    marginHorizontal: 16,
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  friendCardOnline: {
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderColor: "rgba(139,92,246,0.35)",
+  },
   listContainer: {
     paddingTop: 8,
     paddingBottom: 20,
   },
   emptyContainer: {
     flexGrow: 1,
+  },
+  cardActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginLeft: 12,
+  },
+  cardActionBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  cardActionBtnPrimary: {
+    backgroundColor: "#8B5CF6",
+    borderColor: "#8B5CF6",
+  },
+  cardActionIcon: {
+    fontSize: 18,
   },
   profileImage: {
     width: 60,

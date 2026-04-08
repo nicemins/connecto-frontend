@@ -69,7 +69,8 @@ export function getSocket(): Socket | null {
             };
             socketInstance.disconnect().connect();
           }
-        } catch {
+        } catch (e) {
+          if (__DEV__) console.warn("Socket token refresh failed:", e);
           // 갱신 실패 → 로그아웃 후 Login 화면으로
           const { logout } = useAuthStore.getState();
           await logout();

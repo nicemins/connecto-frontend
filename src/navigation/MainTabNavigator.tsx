@@ -8,11 +8,13 @@ import FriendListScreen from "../screens/FriendListScreen";
 import ChatListScreen from "../screens/ChatListScreen";
 import MyPageScreen from "../screens/MyPageScreen";
 import { getFriendRequests } from "../api/friends";
+import { useAuthStore } from "../store/authStore";
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export default function MainTabNavigator() {
   const [friendRequestCount, setFriendRequestCount] = React.useState(0);
+  const totalUnreadCount = useAuthStore((s) => s.totalUnreadCount);
 
   // 친구 요청 뱃지 — 탭 포커스 시 갱신
   const refreshBadge = React.useCallback(async () => {
@@ -71,7 +73,7 @@ export default function MainTabNavigator() {
         options={{
           tabBarLabel: "채팅",
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon emoji="💬" color={color} focused={focused} />
+            <TabIcon emoji="💬" color={color} focused={focused} badge={totalUnreadCount} />
           ),
         }}
       />

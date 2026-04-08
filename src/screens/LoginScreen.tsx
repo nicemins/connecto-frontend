@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
@@ -42,6 +43,16 @@ export default function LoginScreen() {
   const { persistTokens, setMe } = useAuthStore();
   const { width } = useWindowDimensions();
   const charSize = Math.min(width * 0.4, 160);
+
+  const floatAnim = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, { toValue: -12, duration: 2200, useNativeDriver: true }),
+        Animated.timing(floatAnim, { toValue: 0, duration: 2200, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [floatAnim]);
 
   const [activeTab, setActiveTab] = React.useState<"social" | "email">("social");
   const [email, setEmail] = React.useState("");
@@ -194,12 +205,15 @@ export default function LoginScreen() {
             </View>
 
             {/* 캐릭터 */}
-            <View className="items-center justify-center py-6">
+            <Animated.View
+              className="items-center justify-center py-6"
+              style={{ transform: [{ translateY: floatAnim }] }}
+            >
               <CharacterBlob
                 size={charSize}
                 colors={["#FFB88C", "#F093A0", "#B88FCE"]}
               />
-            </View>
+            </Animated.View>
 
             {/* 탭 선택 */}
             <View style={styles.tabContainer}>

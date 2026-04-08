@@ -30,7 +30,28 @@ export default function MatchingScreen() {
   const { status, matchResult, error, startMatching, cancelMatching } =
     useSocketMatching();
 
-  // Ripple 애니메이션 (moti 대신 React Native Animated 사용)
+  // 대기 경과 시간
+  const [elapsed, setElapsed] = React.useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const formatElapsed = (s: number) => {
+    if (s < 60) return `${s}초 대기 중`;
+    return `${Math.floor(s / 60)}분 ${s % 60}초 대기 중`;
+  };
+
+  // 점 애니메이션
+  const [dots, setDots] = React.useState("");
+  useEffect(() => {
+    const id = setInterval(() => {
+      setDots((d) => (d.length >= 3 ? "" : d + "."));
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
+
+  // Ripple 애니메이션
   const rippleAnims = React.useRef(
     Array.from({ length: RIPPLE_COUNT }, () => new Animated.Value(0))
   ).current;
@@ -79,19 +100,19 @@ export default function MatchingScreen() {
       />
       <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
         <View className="flex-1 items-center justify-center px-6">
-          <Text className="mb-8 text-2xl font-bold text-gray-800">
-            Matching
-          </Text>
+
+          {/* 타이틀 */}
+          <Text style={styles.title}>파트너 찾는 중</Text>
+          <Text style={styles.elapsed}>{formatElapsed(elapsed)}</Text>
 
           {/* 캐릭터 + Ripple 애니메이션 */}
-          <View className="mb-8 items-center">
+          <View style={styles.characterWrapper}>
             <View
               style={[
                 styles.characterContainer,
                 { width: charSize + 100, height: charSize + 100 },
               ]}
             >
-              {/* Ripple 애니메이션 */}
               {rippleAnims.map((anim, i) => {
                 const scale = anim.interpolate({
                   inputRange: [0, 1],
@@ -117,8 +138,6 @@ export default function MatchingScreen() {
                   />
                 );
               })}
-
-              {/* 메인 캐릭터 */}
               <CharacterBlob
                 size={charSize}
                 colors={["#FFB88C", "#F093A0", "#B88FCE"]}
@@ -127,24 +146,24 @@ export default function MatchingScreen() {
             </View>
           </View>
 
-          {/* 텍스트 */}
-          <Text className="mb-2 text-center text-lg text-gray-700">
-            Searching for partner...
+          {/* 상태 텍스트 */}
+          <Text style={styles.statusText}>
+            새로운 인연을 찾고 있어요{dots}
           </Text>
+          <Text style={styles.subText}>
+            전 세계 누군가와 5분간 이야기해보세요
+          </Text>
+
           {error && (
-            <Text className="mb-4 text-center text-sm text-orange-600">
-              {error}
-            </Text>
+            <Text style={styles.errorText}>{error}</Text>
           )}
 
-          {/* Cancel 버튼 */}
+          {/* 취소 버튼 */}
           <Pressable
             onPress={handleCancel}
-            className="mt-8 h-12 w-48 items-center justify-center rounded-2xl border-2 border-gray-300 bg-white"
+            style={styles.cancelButton}
           >
-            <Text className="text-base font-semibold text-gray-700">
-              Cancel
-            </Text>
+            <Text style={styles.cancelText}>취소</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -154,6 +173,21 @@ export default function MatchingScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  title: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: "#374151",
+    marginBottom: 4,
+  },
+  elapsed: {
+    fontSize: 13,
+    color: "rgba(107,114,128,0.8)",
+    marginBottom: 32,
+  },
+  characterWrapper: {
+    marginBottom: 32,
+    alignItems: "center",
+  },
   characterContainer: {
     alignItems: "center",
     justifyContent: "center",
@@ -164,5 +198,41 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(184, 143, 206, 0.3)",
     borderWidth: 2,
     borderColor: "rgba(184, 143, 206, 0.5)",
+  },
+  statusText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#4B5563",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  subText: {
+    fontSize: 13,
+    color: "rgba(107,114,128,0.7)",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  errorText: {
+    fontSize: 13,
+    color: "#EA580C",
+    textAlign: "center",
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  cancelButton: {
+    marginTop: 32,
+    height: 52,
+    width: 160,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    borderWidth: 1.5,
+    borderColor: "rgba(184,143,206,0.4)",
+  },
+  cancelText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#6B7280",
   },
 });
