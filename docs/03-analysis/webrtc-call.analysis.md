@@ -1,104 +1,59 @@
-# Gap Analysis: webrtc-call
+# Gap Analysis — webrtc-call (재검증)
 
-**Date**: 2026-03-06
-**Feature**: webrtc-call (WebRTC 통화 플로우 버그 수정)
-**Match Rate**: 100%
-
----
-
-## Plan vs Implementation Comparison
-
-### Bug 1 (Critical): Offerer 충돌 수정
-**Status**: PASS (100%)
-
-| 세부 항목 | 결과 |
-|-----------|------|
-| `setTimeout(() => createOffer(), 500)` 제거 | PASS — 해당 코드 없음 |
-| `isOfferer` prop 추가 (`WebRTCHookParams`) | PASS — line 34 |
-| `if (isOfferer) { createOffer() }` 로 교체 | PASS — lines 303-307 |
-| `isOffererRef.current = true` 조건부 설정 | PASS — line 305 |
-
-### Bug 2 (High): 채널 Room Join 추가
-**Status**: PASS (100%)
-
-| 세부 항목 | 결과 |
-|-----------|------|
-| `socket.emit("webrtc:join", { channelId, sessionId })` | PASS — line 251 |
-| PeerConnection 초기화 전에 join emit | PASS — join이 initializePeerConnection 앞 |
-
-### Bug 3 (High): POST /match/start REST 선행 호출
-**Status**: PASS (100%)
-
-| 세부 항목 | 결과 |
-|-----------|------|
-| `await apiClient.post("/match/start")` 추가 | PASS — lines 62-68 |
-| 실패 시 error 설정 + 조기 리턴 | PASS — setError + setStatus("idle") + return |
-| 성공 후 소켓 이벤트 대기 (기존 흐름 유지) | PASS |
-
-### Gap 1 (Medium): TURN 서버 조건부 설정
-**Status**: PASS (100%)
-
-| 세부 항목 | 결과 |
-|-----------|------|
-| `EXPO_PUBLIC_TURN_URL` 환경변수 참조 | PASS — line 60 |
-| TURN 없으면 STUN only (기존 동작 유지) | PASS — spread 조건부 |
-| username/credential 환경변수 | PASS — lines 67-68 |
-
-### Gap 2 (Low): CallScreen 재연결 버튼
-**Status**: PASS (100%)
-
-| 세부 항목 | 결과 |
-|-----------|------|
-| `startConnection`, `cleanup` 반환 | PASS — `useWebRTC` return에 포함 |
-| `webrtcError` 시 재연결 버튼 표시 | PASS — `CallScreen.tsx` |
-| `onPress` → `cleanup() + startConnection()` | PASS |
-
-### 타입 전파 (types.ts + MatchingScreen)
-**Status**: PASS (100%)
-
-| 세부 항목 | 결과 |
-|-----------|------|
-| `RootStackParamList.Call`에 `isOfferer: boolean` | PASS |
-| `CallScreenRouteProp.params`에 `isOfferer: boolean` | PASS |
-| `MatchResult` 타입에 `isOfferer: boolean` | PASS |
-| `MatchingScreen` → `navigation.replace("Call", { isOfferer })` | PASS |
-| 폴링 fallback에 `isOfferer: false` 기본값 | PASS |
+**설계 기준**: `docs/02-design/features/webrtc-call.design.md` (2026-03-06)
+**분석 대상**: 커밋 1443b8f (peer-ready 리팩터링) 이후 현재 상태
+**분석일**: 2026-04-11
+**Overall Match Rate**: 95% ✅
 
 ---
 
-## TypeScript 검증
+## 요약
 
-```
-npx tsc --noEmit → 0 errors
-```
-
----
-
-## Gaps
-
-없음. 모든 Plan/Design 목표가 달성되었습니다.
+| 영역 | 결과 |
+|------|:----:|
+| 설계 필수 항목 (8개) | ✅ 8/8 |
+| 설계 초과 구현 | 3개 (개선) |
+| 백엔드 의존 확인 필요 | 2개 ⚠️ |
+| **Overall Match Rate** | **95%** |
 
 ---
 
-## 잔여 백엔드 의존성 (프론트 범위 외)
+## SC 검증
 
-| 항목 | 내용 | 상태 |
-|------|------|------|
-| `match:success` 이벤트에 `isOfferer` 포함 | 서버가 한 쪽 true, 다른 쪽 false 전달 | 백엔드 협의 필요 |
-| `webrtc:join` 이벤트 서버 처리 | 서버가 channelId 룸에 소켓 추가 | 백엔드 확인 필요 |
-| TURN 서버 URL | 실기기 NAT 통과 | 선택사항 |
+| 항목 | 설계 | 구현 | 상태 |
+|------|------|------|:----:|
+| `MatchResult.isOfferer` 타입 | `boolean` 추가 | `useSocketMatching.ts:9` | ✅ |
+| `sessionId` 타입 | `string` | `number` (CLAUDE.md 규칙, 의도적) | ✅ |
+| REST `/match/start` 선행 호출 | 소켓 전 REST 먼저 | `useSocketMatching.ts:64-89` | ✅ |
+| `socket.emit("webrtc:join")` | PC 초기화 전 emit | `useWebRTC.ts:268` (join → PC init 순서 보장) | ✅ |
+| `isOfferer` → `createOffer()` 분기 | if문 직접 분기 | `useWebRTC.ts:335-348` (peer-ready wait 후 분기) | ✅ |
+| TURN 서버 설정 | env var 직접 참조 | `getTurnCredentials()` API (SEC-H1 개선) | ✅ |
+| `CallScreen` `isOfferer` prop 수신 | route.params 수신 | `CallScreen.tsx:133,155` | ✅ |
+| 재연결 버튼 (`webrtcError` 시) | 에러 시 UI 제공 | `CallScreen.tsx:175-185` | ✅ |
 
 ---
 
-## Summary
+## 설계 초과 구현 (Improvement)
 
-| 항목 | 결과 |
-|------|------|
-| Offerer 충돌 수정 | PASS |
-| 채널 Room Join | PASS |
-| POST /match/start 선행 호출 | PASS |
-| TURN 서버 조건부 설정 | PASS |
-| 재연결 버튼 UI | PASS |
-| 타입 전파 (5개 파일) | PASS |
-| TypeScript 타입 안전성 | PASS (0 errors) |
-| **Match Rate** | **100%** |
+| 추가 항목 | 위치 | 효과 |
+|-----------|------|------|
+| `webrtc:peer-ready` wait (10s timeout) | `useWebRTC.ts:260-344` | 3s delay/polling 완전 제거, 이벤트 기반 동기화 |
+| `pendingOfferRef` offer 버퍼링 | `useWebRTC.ts:270-303` | Answerer PC 초기화 전 offer 도착 race condition 방지 |
+| `match:error` / `disconnect` Alert | `useSocketMatching.ts:49-61` | 매칭 중 오류 사용자 피드백 강화 |
+
+---
+
+## 잔여 이슈 (백엔드 의존)
+
+| ID | 항목 | 상태 | 비고 |
+|----|------|:----:|------|
+| W-1 | `webrtc:peer-ready` 서버 구현 | ⚠️ 미확인 | 두 번째 peer가 `webrtc:join` emit 시 서버가 채널에 broadcast 필요 |
+| W-2 | `match:success` payload에 `isOfferer` 포함 | ⚠️ 미확인 | MEMORY(2026-03-06): 미포함 / CLAUDE.md: 포함 — 서버 동작 재확인 필요 |
+
+### W-2 리스크 상세
+
+REST `matched=false` 경로(소켓 대기)에서 서버가 `isOfferer` 필드를 포함하지 않으면:
+- `MatchSuccessPayload.isOfferer` = `undefined` → falsy → 양쪽 모두 answerer
+- 결과: offer가 생성되지 않아 WebRTC 연결 불가
+
+**확인 방법**: 에뮬레이터 2대 동시 매칭 후 `match:success` payload 로그 확인.
