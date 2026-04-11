@@ -3,7 +3,7 @@
 **설계 기준**: `docs/02-design/features/webrtc-call.design.md` (2026-03-06)
 **분석 대상**: 커밋 1443b8f (peer-ready 리팩터링) 이후 현재 상태
 **분석일**: 2026-04-11
-**Overall Match Rate**: 95% ✅
+**Overall Match Rate**: 100% ✅
 
 ---
 
@@ -13,8 +13,8 @@
 |------|:----:|
 | 설계 필수 항목 (8개) | ✅ 8/8 |
 | 설계 초과 구현 | 3개 (개선) |
-| 백엔드 의존 확인 필요 | 2개 ⚠️ |
-| **Overall Match Rate** | **95%** |
+| 백엔드 의존 확인 필요 | 0개 (2개 → 모두 해소) |
+| **Overall Match Rate** | **100%** |
 
 ---
 
@@ -43,17 +43,14 @@
 
 ---
 
-## 잔여 이슈 (백엔드 의존)
+## 백엔드 확인 결과 (2026-04-11)
 
-| ID | 항목 | 상태 | 비고 |
-|----|------|:----:|------|
-| W-1 | `webrtc:peer-ready` 서버 구현 | ⚠️ 미확인 | 두 번째 peer가 `webrtc:join` emit 시 서버가 채널에 broadcast 필요 |
-| W-2 | `match:success` payload에 `isOfferer` 포함 | ⚠️ 미확인 | MEMORY(2026-03-06): 미포함 / CLAUDE.md: 포함 — 서버 동작 재확인 필요 |
+| ID | 항목 | 상태 | 확인 내용 |
+|----|------|:----:|-----------|
+| W-1 | `webrtc:peer-ready` 서버 구현 | ✅ 해소 | `MatchSocketHandler.java:348-373` — channelRoomMap size >= 2 시 room 전체 broadcast |
+| W-2 | `match:success` payload에 `isOfferer` 포함 | ✅ 해소 | 즉시(L223) · user1(L299) · user2(L314) 모두 true/false 올바르게 전송 |
 
-### W-2 리스크 상세
-
-REST `matched=false` 경로(소켓 대기)에서 서버가 `isOfferer` 필드를 포함하지 않으면:
-- `MatchSuccessPayload.isOfferer` = `undefined` → falsy → 양쪽 모두 answerer
-- 결과: offer가 생성되지 않아 WebRTC 연결 불가
-
-**확인 방법**: 에뮬레이터 2대 동시 매칭 후 `match:success` payload 로그 확인.
+### 주의사항 (W-1 부가 정보)
+- 서버는 `io.in(room)` 대신 `ConcurrentHashMap<String, Set<SocketIOClient>>(channelRoomMap)`으로 직접 관리
+- **서버 재시작 또는 소켓 재연결 시 map 초기화** → 재연결 케이스에서 `webrtc:peer-ready`가 발송되지 않을 수 있음
+- 재연결 중 WebRTC 연결 실패 시 이 경로를 우선 의심할 것
