@@ -223,7 +223,7 @@ export default function MyPageScreen() {
         colors={["#10101E", "#16213E"]}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
         <ScrollView
           contentContainerStyle={{ paddingBottom: 32 }}
           showsVerticalScrollIndicator={false}

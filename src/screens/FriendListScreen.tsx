@@ -380,7 +380,7 @@ export default function FriendListScreen() {
           locations={[0, 1]}
           style={StyleSheet.absoluteFill}
         />
-        <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+        <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
           <View className="px-4 pt-6 pb-4">
             <Text className="text-3xl font-bold text-white">친구 목록</Text>
           </View>
@@ -502,7 +502,7 @@ export default function FriendListScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-      <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
         {/* 헤더 */}
         <View className="px-4 pt-6 pb-4 flex-row items-center justify-between">
           <Text className="text-3xl font-bold text-white">친구 목록</Text>

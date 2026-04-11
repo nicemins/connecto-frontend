@@ -267,6 +267,13 @@ export function useWebRTC({
       // 통화 채널 룸 진입 (시그널링 라우팅을 위해 join 먼저)
       socket.emit("webrtc:join", { channelId: webrtcChannelId, sessionId });
 
+      // 소켓 재연결 시 webrtc:join 재emit — 서버 channelRoomMap이 초기화된 경우 복구
+      const handleReJoin = () => {
+        if (__DEV__) console.log("[WebRTC] Socket reconnected, re-emitting webrtc:join");
+        socket.emit("webrtc:join", { channelId: webrtcChannelId, sessionId });
+      };
+      socket.on("connect", handleReJoin);
+
       // webrtc:offer 리스너를 join 직후 즉시 등록 — PC 준비 전 offer 도착 시 버퍼에 저장
       socket.on("webrtc:offer", async (data: { sdp: RTCSessionDescriptionInit; from?: string }) => {
         if (!peerConnectionRef.current) {
@@ -335,11 +342,13 @@ export function useWebRTC({
       if (isOfferer) {
         isOffererRef.current = true;
         // answerer의 webrtc:join이 서버에 도착하면 서버가 peer-ready를 브로드캐스트
+        // 매칭 후 answerer가 소켓 이벤트를 수신 → navigate → join 까지 여유 시간 확보
         if (__DEV__) console.log("[WebRTC] Waiting for peer-ready signal...");
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("peer-ready timeout (10s)")), 10000)
+          setTimeout(() => reject(new Error("peer-ready timeout (30s)")), 30000)
         );
         await Promise.race([peerReadyPromise!, timeoutPromise]);
+        socket.off("connect", handleReJoin); // peer-ready 수신 → 재join 핸들러 해제
         if (__DEV__) console.log("[WebRTC] peer-ready received, creating offer...");
         await createOffer();
         if (__DEV__) console.log("[WebRTC] Offer created and sent");
@@ -380,6 +389,7 @@ export function useWebRTC({
       socketRef.current.off("webrtc:answer");
       socketRef.current.off("webrtc:ice");
       socketRef.current.off("webrtc:peer-ready");
+      socketRef.current.off("connect"); // handleReJoin 해제
     }
 
     // 상태 초기화

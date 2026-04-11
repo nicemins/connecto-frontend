@@ -24,6 +24,7 @@ export type ChatMessagesResponse = {
   hasNext: boolean;
   page: number;
   size: number;
+  partnerLastReadMessageId?: number; // 상대방이 마지막으로 읽은 메시지 ID (초기 진입 시 즉시 읽음 렌더링용)
 };
 
 /**
@@ -65,6 +66,14 @@ export async function sendChatImage(roomId: number, uri: string): Promise<ChatMe
     { headers: { "Content-Type": "multipart/form-data" } }
   );
   return data.data;
+}
+
+/**
+ * 채팅방 나가기 (삭제)
+ * DELETE /chat/rooms/{roomId}
+ */
+export async function leaveChatRoom(roomId: number): Promise<void> {
+  await apiClient.delete(`/chat/rooms/${roomId}`);
 }
 
 /**

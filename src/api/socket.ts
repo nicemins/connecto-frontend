@@ -28,8 +28,9 @@ export function getSocket(): Socket | null {
       },
       transports: ["websocket", "polling"],
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
     });
 
     // 재연결 시 최신 accessToken으로 extraHeaders + query 갱신

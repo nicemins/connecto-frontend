@@ -63,8 +63,6 @@ export default function ChatScreen() {
   const [hasNext, setHasNext] = React.useState(false);
   const [page, setPage] = React.useState(0);
   // C2: ref 기반 중복 전송 방지 (state는 UI disabled용)
-  const [isSending, setIsSending] = React.useState(false);
-  const isSendingRef = React.useRef(false);
 
   const listRef = React.useRef<FlatList>(null);
   const [showScrollBottom, setShowScrollBottom] = React.useState(false);
@@ -94,6 +92,11 @@ export default function ChatScreen() {
         setMessages(sorted);
         if (sorted.length > 0) {
           latestIdRef.current = sorted[sorted.length - 1].id;
+        }
+        // 초기 진입 시 백엔드에서 내려온 partnerLastReadMessageId로 즉시 읽음 렌더링
+        // (소켓 chat:read 이벤트를 기다리지 않아 깜빡임 없음)
+        if (res.partnerLastReadMessageId !== undefined) {
+          setPartnerLastReadId(res.partnerLastReadMessageId);
         }
       } else {
         setMessages((prev) => [...sorted, ...prev]);
@@ -126,6 +129,8 @@ export default function ChatScreen() {
       if (socket) {
         socket.emit("chat:join", { roomId });
       }
+      // 포커스 시 이전 상태 초기화 후 로드 (나가기 후 재진입 시 잔여 메시지 제거)
+      setMessages([]);
       loadMessages(0);
 
       return () => {
@@ -163,11 +168,6 @@ export default function ChatScreen() {
         if (idx !== -1) {
           const { tempId } = pendingQueueRef.current[idx];
           pendingQueueRef.current.splice(idx, 1);
-          // C2: echo 수신 시 isSending 해제
-          if (pendingQueueRef.current.length === 0) {
-            isSendingRef.current = false;
-            setIsSending(false);
-          }
           if (msg.id > latestIdRef.current) latestIdRef.current = msg.id;
           setMessages((prev) =>
             prev.map((m) => (m.id === tempId ? msg : m))
@@ -191,9 +191,6 @@ export default function ChatScreen() {
     };
 
     const handleError = (data: { message: string }) => {
-      // C2: 전송 실패 시 isSending 해제
-      isSendingRef.current = false;
-      setIsSending(false);
       Alert.alert("전송 실패", data.message);
     };
 
@@ -233,8 +230,7 @@ export default function ChatScreen() {
   // 메시지 전송
   const handleSend = React.useCallback(() => {
     const trimmed = input.trim();
-    // M6: myUserId guard + C2: ref 기반 중복 전송 방지
-    if (!trimmed || isSendingRef.current || !myUserId) return;
+    if (!trimmed || !myUserId) return;
 
     const socket = getSocket();
     if (!socket || !socket.connected) {
@@ -250,11 +246,8 @@ export default function ChatScreen() {
       createdAt: new Date().toISOString(),
     };
 
-    // C3: 큐에 추가 (tempId 기반 매칭)
+    // C3: 큐에 추가 (tempId 기반 echo 매칭)
     pendingQueueRef.current.push({ tempId, content: trimmed, time: Date.now() });
-    // C2: 전송 시작
-    isSendingRef.current = true;
-    setIsSending(true);
 
     isAppendingRef.current = true;
     setMessages((prev) => [...prev, tempMsg]);
@@ -262,15 +255,11 @@ export default function ChatScreen() {
 
     socket.emit("chat:send", { roomId, content: trimmed });
 
-    // 15초 후에도 echo 미수신 시 서버 상태로 강제 갱신 (전송 중... 영구 고착 방지)
+    // 15초 후에도 echo 미수신 시 pending 정리 + 서버 상태로 강제 갱신
     setTimeout(() => {
       const stillPending = pendingQueueRef.current.some((p) => p.tempId === tempId);
       if (stillPending) {
         pendingQueueRef.current = pendingQueueRef.current.filter((p) => p.tempId !== tempId);
-        if (pendingQueueRef.current.length === 0) {
-          isSendingRef.current = false;
-          setIsSending(false);
-        }
         loadMessages(0);
       }
     }, 15000);
@@ -350,6 +339,22 @@ export default function ChatScreen() {
     const timeStr = isPending
       ? "전송 중..."
       : new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    // 내 메시지: [읽음] [버블+시간] — 읽음이 버블 왼쪽에 inline으로 표시
+    const bubbleContent = isImage ? (
+      <View>
+        <Image source={{ uri: item.imageUrl! }} style={styles.chatImage} resizeMode="cover" />
+        {isPending && (
+          <View style={styles.imageLoadingOverlay}>
+            <ActivityIndicator color="#fff" size="small" />
+          </View>
+        )}
+      </View>
+    ) : (
+      <Text style={isMine ? styles.messageTextMine : styles.messageTextOther}>
+        {item.content}
+      </Text>
+    );
+
     return (
       <React.Fragment key={item.id}>
         {showDate && (
@@ -361,32 +366,24 @@ export default function ChatScreen() {
             <View style={styles.dateSeparatorLine} />
           </View>
         )}
-        <View style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}>
-          <View style={[
-            styles.messageBubble,
-            isMine ? styles.bubbleMine : styles.bubbleOther,
-            isPending && styles.bubblePending,
-            isImage && styles.bubbleImage,
-          ]}>
-            {isImage ? (
-              <View>
-                <Image source={{ uri: item.imageUrl! }} style={styles.chatImage} resizeMode="cover" />
-                {isPending && (
-                  <View style={styles.imageLoadingOverlay}>
-                    <ActivityIndicator color="#fff" size="small" />
-                  </View>
-                )}
+        {isMine ? (
+          <View style={styles.messageWrapMine}>
+            {isRead && <Text style={styles.readLabel}>읽음</Text>}
+            <View style={styles.messageColMine}>
+              <View style={[styles.messageBubble, styles.bubbleMine, isPending && styles.bubblePending, isImage && styles.bubbleImage]}>
+                {bubbleContent}
               </View>
-            ) : (
-              <Text style={isMine ? styles.messageTextMine : styles.messageTextOther}>
-                {item.content}
-              </Text>
-            )}
+              <Text style={[styles.messageTime, styles.messageTimeMine]}>{timeStr}</Text>
+            </View>
           </View>
-          <Text style={[styles.messageTime, isMine ? styles.messageTimeMine : styles.messageTimeOther]}>
-            {timeStr}{isMine && !isPending && (isRead ? " ✓✓" : "")}
-          </Text>
-        </View>
+        ) : (
+          <View style={styles.messageWrapOther}>
+            <View style={[styles.messageBubble, styles.bubbleOther, isImage && styles.bubbleImage]}>
+              {bubbleContent}
+            </View>
+            <Text style={[styles.messageTime, styles.messageTimeOther]}>{timeStr}</Text>
+          </View>
+        )}
       </React.Fragment>
     );
   };
@@ -472,8 +469,8 @@ export default function ChatScreen() {
           <View style={styles.inputRow}>
             <Pressable
               onPress={handleSendImage}
-              disabled={isImageSending || isSending}
-              style={[styles.imageButton, (isImageSending || isSending) && styles.imageButtonDisabled]}
+              disabled={isImageSending}
+              style={[styles.imageButton, isImageSending && styles.imageButtonDisabled]}
             >
               {isImageSending
                 ? <ActivityIndicator size="small" color="rgba(139,92,246,0.8)" />
@@ -503,8 +500,8 @@ export default function ChatScreen() {
             />
             <Pressable
               onPress={handleSend}
-              disabled={!input.trim() || isSending}
-              style={[styles.sendButton, (!input.trim() || isSending) && styles.sendButtonDisabled]}
+              disabled={!input.trim()}
+              style={[styles.sendButton, !input.trim() && styles.sendButtonDisabled]}
             >
               <Text style={styles.sendIcon}>↑</Text>
             </Pressable>
@@ -542,9 +539,22 @@ const styles = StyleSheet.create({
   messageList: { paddingHorizontal: 16, paddingVertical: 12, flexGrow: 1 },
   emptyContainer: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
   emptyText: { color: "rgba(255,255,255,0.4)", fontSize: 15 },
-  messageRow: { marginBottom: 8, maxWidth: "80%" },
-  messageRowMine: { alignSelf: "flex-end" },
-  messageRowOther: { alignSelf: "flex-start" },
+  // 내 메시지: row = [읽음] + [버블 컬럼]
+  messageWrapMine: {
+    flexDirection: "row",
+    alignSelf: "flex-end",
+    alignItems: "flex-end",
+    marginBottom: 8,
+  },
+  messageColMine: { maxWidth: 260 },
+  // 상대 메시지: 단순 컬럼
+  messageWrapOther: { alignSelf: "flex-start", marginBottom: 8, maxWidth: 260 },
+  readLabel: {
+    color: "rgba(139,92,246,0.75)",
+    fontSize: 10,
+    marginRight: 4,
+    marginBottom: 14, // timestamp 높이만큼 올려서 버블 하단에 정렬
+  },
   messageBubble: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
   bubbleMine: { backgroundColor: "#8B5CF6" },
   bubbleOther: { backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },

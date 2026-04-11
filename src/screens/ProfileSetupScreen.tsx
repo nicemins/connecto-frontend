@@ -48,7 +48,7 @@ export default function ProfileSetupScreen() {
         locations={[0, 0.35, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView className="flex-1 px-6 justify-center" edges={["top", "bottom"]}>
+      <SafeAreaView style={{ flex: 1, paddingHorizontal: 24, justifyContent: "center" }} edges={["top", "bottom"]}>
         <Text className="text-2xl font-bold text-gray-800 mb-2">프로필 설정</Text>
         <Text className="text-sm text-gray-500 mb-8">닉네임을 설정해주세요</Text>
 

@@ -98,7 +98,7 @@ export default function MatchingScreen() {
         locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
         <View className="flex-1 items-center justify-center px-6">
 
           {/* 타이틀 */}

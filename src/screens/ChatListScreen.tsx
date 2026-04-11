@@ -18,7 +18,7 @@ import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MainTabParamList, RootStackParamList } from "../navigation/types";
-import { getChatRooms, createChatRoom, type ChatRoom } from "../api/chat";
+import { getChatRooms, createChatRoom, leaveChatRoom, type ChatRoom } from "../api/chat";
 import {
   getFriendList,
   getFriendRequests,
@@ -252,6 +252,36 @@ export default function ChatListScreen() {
     };
   }, [loadData]);
 
+  const handleLeaveRoom = React.useCallback((room: ChatRoom) => {
+    Alert.alert(
+      "채팅방 나가기",
+      `${room.friendNickname}님과의 채팅방을 나가시겠습니까?\n나가면 대화 내용이 삭제됩니다.`,
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "나가기",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await leaveChatRoom(room.roomId);
+              setChatRooms((prev) => prev.filter((r) => r.roomId !== room.roomId));
+            } catch (e: any) {
+              const status = e?.response?.status;
+              if (status === 404) {
+                // 이미 존재하지 않는 방 — 목록에서 제거
+                setChatRooms((prev) => prev.filter((r) => r.roomId !== room.roomId));
+              } else if (status === 403) {
+                Alert.alert("오류", "해당 채팅방에 접근 권한이 없습니다.");
+              } else {
+                Alert.alert("오류", "채팅방 나가기에 실패했습니다. 다시 시도해주세요.");
+              }
+            }
+          },
+        },
+      ]
+    );
+  }, []);
+
   const handleOpenChat = React.useCallback(
     (room: ChatRoom) => {
       // 채팅방 열면 미읽 카운트 낙관적 초기화 (chat:join이 서버에서 읽음 처리)
@@ -386,6 +416,8 @@ export default function ChatListScreen() {
       <Pressable
         style={({ pressed }) => [styles.chatRow, pressed && styles.chatRowPressed]}
         onPress={() => handleOpenChat(item)}
+        onLongPress={() => handleLeaveRoom(item)}
+        delayLongPress={500}
       >
         <AvatarView
           uri={item.friendProfileImageUrl}
